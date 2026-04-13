@@ -252,11 +252,11 @@ canvas { display: block; }
 #leaderTicker {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
   background: rgba(0,0,0,0.85); padding: 6px 0; pointer-events: none;
-  overflow: hidden; white-space: nowrap; height: 32px;
+  overflow: hidden; white-space: nowrap; height: 34px;
   border-top: 1px solid rgba(255,153,0,0.3);
 }
 #leaderTicker .ticker-content {
-  display: inline-block; animation: tickerScroll 45s linear infinite;
+  display: inline-block; animation: tickerScroll 80s linear infinite;
   color: #aaa; font-size: 0.85em;
 }
 #leaderTicker .ticker-content span { margin: 0 25px; }
@@ -403,38 +403,46 @@ canvas { display: block; }
 
 <div id="leaderTicker" style="display:none">
   <div class="ticker-content" id="tickerContent">
-    <span style="color:#f90">⛽ REAL US GAS PRICES (AAA)</span>
-    <span><span class="city-name">🏷️ San Francisco</span> $5.89</span>
-    <span><span class="city-name">Los Angeles</span> $5.89</span>
-    <span><span class="city-name">Seattle</span> $5.39</span>
-    <span><span class="city-name">Portland</span> $4.99</span>
-    <span><span class="city-name">Las Vegas</span> $4.98</span>
-    <span><span class="city-name">Phoenix</span> $4.70</span>
-    <span><span class="city-name">Chicago</span> $4.39</span>
-    <span><span class="city-name">Washington DC</span> $4.28</span>
-    <span><span class="city-name">Philadelphia</span> $4.16</span>
-    <span><span class="city-name">New York</span> $4.13</span>
-    <span><span class="city-name">Miami</span> $4.03</span>
-    <span><span class="city-name">Detroit</span> $3.98</span>
-    <span><span class="city-name">Boston</span> $3.97</span>
-    <span><span class="city-name">Houston</span> $3.81</span>
-    <span><span class="city-name">Dallas</span> $3.81</span>
-    <span><span class="city-name">Denver</span> $3.77</span>
-    <span><span class="city-name">Minneapolis</span> $3.74</span>
-    <span><span class="city-name">Atlanta</span> $3.71</span>
+    <span style="color:#f90;font-weight:700">⛽ REAL US GAS PRICES (AAA) — vs Last Week</span>
+    <span><span class="city-name">San Francisco</span> $5.89 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Los Angeles</span> $5.89 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Seattle</span> $5.39 <span style="color:#ff4444;font-size:0.85em">📈+0.1%</span></span>
+    <span><span class="city-name">Portland</span> $4.99 <span style="color:#888888;font-size:0.85em">➡️-0.0%</span></span>
+    <span><span class="city-name">Las Vegas</span> $4.98 <span style="color:#44ff44;font-size:0.85em">📉-0.5%</span></span>
+    <span><span class="city-name">Phoenix</span> $4.70 <span style="color:#44ff44;font-size:0.85em">📉-0.9%</span></span>
+    <span><span class="city-name">Chicago</span> $4.38 <span style="color:#ff4444;font-size:0.85em">📈+2.1%</span></span>
+    <span><span class="city-name">Washington DC</span> $4.28 <span style="color:#888888;font-size:0.85em">➡️0.0%</span></span>
+    <span><span class="city-name">Philadelphia</span> $4.15 <span style="color:#888888;font-size:0.85em">➡️-0.0%</span></span>
+    <span><span class="city-name">New York</span> $4.13 <span style="color:#ff4444;font-size:0.85em">📈+1.4%</span></span>
+    <span><span class="city-name">Miami</span> $4.02 <span style="color:#44ff44;font-size:0.85em">📉-4.3%</span></span>
+    <span><span class="city-name">Detroit</span> $3.97 <span style="color:#ff4444;font-size:0.85em">📈+2.7%</span></span>
+    <span><span class="city-name">Boston</span> $3.97 <span style="color:#ff4444;font-size:0.85em">📈+0.9%</span></span>
+    <span><span class="city-name">Denver</span> $3.81 <span style="color:#44ff44;font-size:0.85em">📉-0.2%</span></span>
+    <span><span class="city-name">Houston</span> $3.80 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Dallas</span> $3.80 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Minneapolis</span> $3.73 <span style="color:#ff4444;font-size:0.85em">📈+4.5%</span></span>
+    <span><span class="city-name">Atlanta</span> $3.70 <span style="color:#44ff44;font-size:0.85em">📉-0.3%</span></span>
     <span style="color:#888">🇺🇸 National Avg: $4.13 | Updated Apr 13, 2026</span>
-    <span style="color:#f90">⛽ REAL US GAS PRICES (AAA)</span>
-    <span><span class="city-name">🏷️ San Francisco</span> $5.89</span>
-    <span><span class="city-name">Los Angeles</span> $5.89</span>
-    <span><span class="city-name">Seattle</span> $5.39</span>
-    <span><span class="city-name">Portland</span> $4.99</span>
-    <span><span class="city-name">Las Vegas</span> $4.98</span>
-    <span><span class="city-name">Phoenix</span> $4.70</span>
-    <span><span class="city-name">Chicago</span> $4.39</span>
-    <span><span class="city-name">New York</span> $4.13</span>
-    <span><span class="city-name">Houston</span> $3.81</span>
-    <span><span class="city-name">Atlanta</span> $3.71</span>
-    <span style="color:#888">🇺🇸 National Avg: $4.13</span>
+    <span style="color:#f90;font-weight:700">⛽ REAL US GAS PRICES (AAA) — vs Last Week</span>
+    <span><span class="city-name">San Francisco</span> $5.89 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Los Angeles</span> $5.89 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Seattle</span> $5.39 <span style="color:#ff4444;font-size:0.85em">📈+0.1%</span></span>
+    <span><span class="city-name">Portland</span> $4.99 <span style="color:#888888;font-size:0.85em">➡️-0.0%</span></span>
+    <span><span class="city-name">Las Vegas</span> $4.98 <span style="color:#44ff44;font-size:0.85em">📉-0.5%</span></span>
+    <span><span class="city-name">Phoenix</span> $4.70 <span style="color:#44ff44;font-size:0.85em">📉-0.9%</span></span>
+    <span><span class="city-name">Chicago</span> $4.38 <span style="color:#ff4444;font-size:0.85em">📈+2.1%</span></span>
+    <span><span class="city-name">Washington DC</span> $4.28 <span style="color:#888888;font-size:0.85em">➡️0.0%</span></span>
+    <span><span class="city-name">Philadelphia</span> $4.15 <span style="color:#888888;font-size:0.85em">➡️-0.0%</span></span>
+    <span><span class="city-name">New York</span> $4.13 <span style="color:#ff4444;font-size:0.85em">📈+1.4%</span></span>
+    <span><span class="city-name">Miami</span> $4.02 <span style="color:#44ff44;font-size:0.85em">📉-4.3%</span></span>
+    <span><span class="city-name">Detroit</span> $3.97 <span style="color:#ff4444;font-size:0.85em">📈+2.7%</span></span>
+    <span><span class="city-name">Boston</span> $3.97 <span style="color:#ff4444;font-size:0.85em">📈+0.9%</span></span>
+    <span><span class="city-name">Denver</span> $3.81 <span style="color:#44ff44;font-size:0.85em">📉-0.2%</span></span>
+    <span><span class="city-name">Houston</span> $3.80 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Dallas</span> $3.80 <span style="color:#44ff44;font-size:0.85em">📉-0.6%</span></span>
+    <span><span class="city-name">Minneapolis</span> $3.73 <span style="color:#ff4444;font-size:0.85em">📈+4.5%</span></span>
+    <span><span class="city-name">Atlanta</span> $3.70 <span style="color:#44ff44;font-size:0.85em">📉-0.3%</span></span>
+    <span style="color:#888">🇺🇸 National Avg: $4.13 | Updated Apr 13, 2026</span>
   </div>
 </div>
 
