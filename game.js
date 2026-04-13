@@ -1,0 +1,1735 @@
+// ============================================================
+// BARREL RUN - Complete Game Engine
+// ============================================================
+
+// ---- CONSTANTS ----
+const CITY_SIZE = 500;
+const BLOCK_SIZE = 40;
+const ROAD_WIDTH = 12;
+const BUILDING_MIN_H = 8;
+const BUILDING_MAX_H = 55;
+const BARREL_COUNT = 25;
+const BARREL_RESPAWN_TIME = 35000;
+const TIMER_SECONDS = 600;
+const START_PRICE = 7.89;
+const TARGET_PRICE = 2.00;
+const NPC_CAR_COUNT = 12;
+const TREE_COUNT = 60;
+const LAMP_COUNT = 40;
+
+// ---- STATE ----
+let scene, camera, renderer, clock;
+let player = null;
+let playerName = 'Player';
+let playerColor = '#ff4444';
+let barrels = [];
+let buildings = [];
+let npcCars = [];
+let fakePlayers = [];
+let currentPrice = START_PRICE;
+let targetPrice = TARGET_PRICE;
+let timeRemaining = TIMER_SECONDS;
+let playerBarrelCount = 0;
+let cityBarrelCount = 0;
+let gameActive = false;
+let soundEnabled = true;
+let audioCtx = null;
+let keys = {};
+let mouseDX = 0;
+let cameraYaw = 0;
+let isMobile = false;
+let joystickInput = { x: 0, y: 0 };
+let proximityBarrel = null;
+let gasSignGroup = null;
+let confettiParticles = [];
+let dustParticles = null;
+
+// ---- AUDIO ENGINE ----
+class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.masterGain = null;
+    this.musicGain = null;
+    this.sfxGain = null;
+    this.engineOsc = null;
+    this.engineGain = null;
+    this.musicPlaying = false;
+  }
+
+  init() {
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx = this.ctx;
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = 0.5;
+    this.masterGain.connect(this.ctx.destination);
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.gain.value = 0.15;
+    this.musicGain.connect(this.masterGain);
+    this.sfxGain = this.ctx.createGain();
+    this.sfxGain.gain.value = 0.6;
+    this.sfxGain.connect(this.masterGain);
+
+    // Engine sound
+    this.engineOsc = this.ctx.createOscillator();
+    this.engineGain = this.ctx.createGain();
+    this.engineOsc.type = 'sawtooth';
+    this.engineOsc.frequency.value = 60;
+    this.engineGain.gain.value = 0;
+    this.engineOsc.connect(this.engineGain);
+    this.engineGain.connect(this.masterGain);
+    this.engineOsc.start();
+  }
+
+  setMute(muted) {
+    if (this.masterGain) this.masterGain.gain.value = muted ? 0 : 0.5;
+  }
+
+  updateEngine(speed) {
+    if (!this.engineGain) return;
+    const vol = Math.min(speed / 40, 1) * 0.08;
+    const freq = 60 + speed * 2.5;
+    this.engineGain.gain.value = vol;
+    this.engineOsc.frequency.value = freq;
+  }
+
+  playNote(freq, duration, type = 'sine', gain = 0.3) {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(gain, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + duration);
+  }
+
+  playBarrelPickup(tier) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    // Ascending arpeggio
+    const notes = tier === 'gold' ? [523, 659, 784, 1047] :
+                  tier === 'silver' ? [440, 554, 659] : [330, 440];
+    notes.forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0.3, t + i * 0.08);
+      g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.08 + 0.3);
+      osc.connect(g);
+      g.connect(this.sfxGain);
+      osc.start(t + i * 0.08);
+      osc.stop(t + i * 0.08 + 0.3);
+    });
+  }
+
+  playPriceFlip() {
+    if (!this.ctx) return;
+    // Mechanical ka-CHUNK
+    const t = this.ctx.currentTime;
+    const bufferSize = this.ctx.sampleRate * 0.08;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15));
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 800;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.5;
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(this.sfxGain);
+    src.start(t);
+    // Low thud
+    const osc = this.ctx.createOscillator();
+    const og = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+    og.gain.setValueAtTime(0.4, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(og);
+    og.connect(this.sfxGain);
+    osc.start(t);
+    osc.stop(t + 0.2);
+  }
+
+  playHorn() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [280, 350].forEach(f => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0.15, t);
+      g.gain.setValueAtTime(0.15, t + 0.4);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      osc.connect(g);
+      g.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 0.5);
+    });
+  }
+
+  playSonarPing(intensity) {
+    if (!this.ctx) return;
+    const freq = 800 + intensity * 600;
+    this.playNote(freq, 0.15, 'sine', 0.1 + intensity * 0.15);
+  }
+
+  playVictory() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const chord = [523, 659, 784, 1047, 1319];
+    chord.forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0, t + i * 0.1);
+      g.gain.linearRampToValueAtTime(0.2, t + i * 0.1 + 0.1);
+      g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.1 + 2);
+      osc.connect(g);
+      g.connect(this.sfxGain);
+      osc.start(t + i * 0.1);
+      osc.stop(t + i * 0.1 + 2);
+    });
+  }
+
+  playFoghorn() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(85, t);
+    osc.frequency.linearRampToValueAtTime(80, t + 2.5);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.06, t + 0.3);
+    g.gain.setValueAtTime(0.06, t + 1.8);
+    g.gain.linearRampToValueAtTime(0, t + 2.5);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 200;
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 2.5);
+  }
+
+  startMusic() {
+    if (!this.ctx || this.musicPlaying) return;
+    this.musicPlaying = true;
+    this._playMusicLoop();
+  }
+
+  _playMusicLoop() {
+    if (!this.musicPlaying || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    // Lo-fi beat pattern
+    const bpm = 75;
+    const beat = 60 / bpm;
+    const bar = beat * 4;
+    // Kick pattern
+    for (let i = 0; i < 4; i++) {
+      const kt = t + i * beat;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(150, kt);
+      osc.frequency.exponentialRampToValueAtTime(40, kt + 0.15);
+      g.gain.setValueAtTime(0.3, kt);
+      g.gain.exponentialRampToValueAtTime(0.001, kt + 0.2);
+      osc.connect(g); g.connect(this.musicGain);
+      osc.start(kt); osc.stop(kt + 0.2);
+    }
+    // Hi-hat pattern
+    for (let i = 0; i < 8; i++) {
+      const ht = t + i * (beat / 2);
+      const bufferSize = Math.floor(this.ctx.sampleRate * 0.03);
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let j = 0; j < bufferSize; j++) data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufferSize * 0.3));
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      const hg = this.ctx.createGain();
+      hg.gain.value = i % 2 === 0 ? 0.12 : 0.06;
+      const hf = this.ctx.createBiquadFilter();
+      hf.type = 'highpass'; hf.frequency.value = 7000;
+      src.connect(hf); hf.connect(hg); hg.connect(this.musicGain);
+      src.start(ht);
+    }
+    // Bass note
+    const bassNotes = [65, 65, 82, 73];
+    bassNotes.forEach((f, i) => {
+      const bt = t + i * beat;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0.15, bt);
+      g.gain.exponentialRampToValueAtTime(0.001, bt + beat * 0.9);
+      osc.connect(g); g.connect(this.musicGain);
+      osc.start(bt); osc.stop(bt + beat);
+    });
+    setTimeout(() => this._playMusicLoop(), bar * 1000);
+  }
+}
+
+const audio = new AudioEngine();
+
+// ---- INIT ----
+function init() {
+  // Detect mobile
+  isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || window.innerWidth < 768;
+
+  // Scene
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1a3e);
+  scene.fog = new THREE.FogExp2(0x2a1a3e, 0.003);
+
+  // Camera
+  camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 600);
+  camera.position.set(0, 15, 20);
+
+  // Renderer
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+  clock = new THREE.Clock();
+
+  // Lighting
+  const hemiLight = new THREE.HemisphereLight(0x6688cc, 0x443322, 0.4);
+  scene.add(hemiLight);
+
+  const sunLight = new THREE.DirectionalLight(0xffddaa, 1.2);
+  sunLight.position.set(100, 120, 80);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.camera.left = -200;
+  sunLight.shadow.camera.right = 200;
+  sunLight.shadow.camera.top = 200;
+  sunLight.shadow.camera.bottom = -200;
+  sunLight.shadow.camera.far = 500;
+  scene.add(sunLight);
+
+  const ambLight = new THREE.AmbientLight(0x334466, 0.3);
+  scene.add(ambLight);
+
+  // Skybox gradient
+  createSkybox();
+
+  // Ground
+  createGround();
+
+  // City
+  createCity();
+
+  // Gas price sign
+  createGasSign();
+
+  // NPC cars
+  createNPCCars();
+
+  // Trees
+  createTrees();
+
+  // Street lamps
+  createStreetLamps();
+
+  // Dust particles
+  createDustParticles();
+
+  // Events
+  setupEvents();
+
+  // Hide loading, show start
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('startScreen').style.display = 'flex';
+
+  // Color picker
+  document.querySelectorAll('.color-opt').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.color-opt').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+      playerColor = el.dataset.color;
+    });
+  });
+
+  // Start button
+  document.getElementById('startBtn').addEventListener('click', startGame);
+
+  // Sound toggle
+  document.getElementById('soundToggle').addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    document.getElementById('soundToggle').textContent = soundEnabled ? '🔊' : '🔇';
+    audio.setMute(!soundEnabled);
+  });
+
+  // Retry
+  document.getElementById('retryBtn').addEventListener('click', () => {
+    document.getElementById('gameOverOverlay').style.display = 'none';
+    resetGame();
+    startGame();
+  });
+
+  // Next city
+  document.getElementById('nextCityBtn').addEventListener('click', () => {
+    document.getElementById('victoryOverlay').style.display = 'none';
+    resetGame();
+    startGame();
+  });
+
+  // Portal
+  document.getElementById('portalBtn').addEventListener('click', () => {
+    window.open('https://portal.pieter.com?ref=barrelrun&username=' + encodeURIComponent(playerName), '_blank');
+  });
+
+  // Start render loop
+  animate();
+}
+
+// ---- SKYBOX ----
+function createSkybox() {
+  const skyGeo = new THREE.SphereGeometry(500, 32, 32);
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      topColor: { value: new THREE.Color(0x0a0a2e) },
+      midColor: { value: new THREE.Color(0x2a1a4e) },
+      bottomColor: { value: new THREE.Color(0xff6633) },
+    },
+    vertexShader: `
+      varying vec3 vWorldPos;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 topColor;
+      uniform vec3 midColor;
+      uniform vec3 bottomColor;
+      varying vec3 vWorldPos;
+      void main() {
+        float h = normalize(vWorldPos).y;
+        vec3 col;
+        if (h > 0.0) col = mix(midColor, topColor, h);
+        else col = mix(midColor, bottomColor, -h * 3.0);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+    side: THREE.BackSide,
+    depthWrite: false,
+  });
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+}
+
+// ---- GROUND ----
+function createGround() {
+  const groundGeo = new THREE.PlaneGeometry(CITY_SIZE * 2, CITY_SIZE * 2, 64, 64);
+  // SF hills
+  const pos = groundGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const h = Math.sin(x * 0.015) * Math.cos(y * 0.012) * 8 +
+              Math.sin(x * 0.008 + 1) * Math.sin(y * 0.01) * 12;
+    pos.setZ(i, h);
+  }
+  groundGeo.computeVertexNormals();
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2a2a,
+    roughness: 0.95,
+    metalness: 0.05,
+  });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Road grid
+  const roadMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 });
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffff66 });
+
+  const gridCount = Math.floor(CITY_SIZE / BLOCK_SIZE);
+  for (let i = -gridCount; i <= gridCount; i++) {
+    // Horizontal roads
+    const hRoad = new THREE.Mesh(
+      new THREE.PlaneGeometry(CITY_SIZE * 2, ROAD_WIDTH),
+      roadMat
+    );
+    hRoad.rotation.x = -Math.PI / 2;
+    hRoad.position.set(0, 0.05, i * BLOCK_SIZE);
+    hRoad.receiveShadow = true;
+    scene.add(hRoad);
+
+    // Lane line
+    const hLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(CITY_SIZE * 2, 0.3),
+      lineMat
+    );
+    hLine.rotation.x = -Math.PI / 2;
+    hLine.position.set(0, 0.07, i * BLOCK_SIZE);
+    scene.add(hLine);
+
+    // Vertical roads
+    const vRoad = new THREE.Mesh(
+      new THREE.PlaneGeometry(ROAD_WIDTH, CITY_SIZE * 2),
+      roadMat
+    );
+    vRoad.rotation.x = -Math.PI / 2;
+    vRoad.position.set(i * BLOCK_SIZE, 0.05, 0);
+    vRoad.receiveShadow = true;
+    scene.add(vRoad);
+
+    const vLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, CITY_SIZE * 2),
+      lineMat
+    );
+    vLine.rotation.x = -Math.PI / 2;
+    vLine.position.set(i * BLOCK_SIZE, 0.07, 0);
+    scene.add(vLine);
+  }
+}
+
+// ---- CITY BUILDINGS ----
+function createCity() {
+  const gridCount = Math.floor(CITY_SIZE / BLOCK_SIZE);
+  const windowTex = createWindowTexture();
+
+  for (let gx = -gridCount; gx < gridCount; gx++) {
+    for (let gz = -gridCount; gz < gridCount; gz++) {
+      const cx = gx * BLOCK_SIZE + BLOCK_SIZE / 2;
+      const cz = gz * BLOCK_SIZE + BLOCK_SIZE / 2;
+
+      // Skip some blocks for parks/empty lots
+      if (Math.random() < 0.15) continue;
+
+      const numBuildings = Math.floor(Math.random() * 3) + 1;
+      for (let b = 0; b < numBuildings; b++) {
+        const w = 5 + Math.random() * 12;
+        const d = 5 + Math.random() * 12;
+        // Height varies by distance from center (downtown taller)
+        const distFromCenter = Math.sqrt(cx * cx + cz * cz);
+        const heightMult = Math.max(0.3, 1 - distFromCenter / CITY_SIZE);
+        const h = BUILDING_MIN_H + Math.random() * (BUILDING_MAX_H - BUILDING_MIN_H) * heightMult;
+
+        const bx = cx + (Math.random() - 0.5) * (BLOCK_SIZE - ROAD_WIDTH - w);
+        const bz = cz + (Math.random() - 0.5) * (BLOCK_SIZE - ROAD_WIDTH - d);
+
+        // Building base color - variety
+        const hue = Math.random() * 0.1 + 0.55; // blue-grey range
+        const sat = 0.05 + Math.random() * 0.1;
+        const light = 0.15 + Math.random() * 0.2;
+        const col = new THREE.Color().setHSL(hue, sat, light);
+
+        const geo = new THREE.BoxGeometry(w, h, d);
+        const mat = new THREE.MeshStandardMaterial({
+          color: col,
+          roughness: 0.7 + Math.random() * 0.3,
+          metalness: 0.1,
+          map: windowTex,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(bx, h / 2, bz);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        buildings.push({ mesh, x: bx, z: bz, w, d, h });
+      }
+    }
+  }
+}
+
+function createWindowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, 64, 128);
+  // Window grid
+  for (let row = 0; row < 16; row++) {
+    for (let col = 0; col < 4; col++) {
+      if (Math.random() > 0.4) {
+        const warm = Math.random() > 0.5;
+        ctx.fillStyle = warm
+          ? `rgba(255,${180 + Math.random() * 75},${80 + Math.random() * 60},${0.5 + Math.random() * 0.5})`
+          : `rgba(${150 + Math.random() * 100},${200 + Math.random() * 55},255,${0.3 + Math.random() * 0.4})`;
+        ctx.fillRect(col * 16 + 3, row * 8 + 2, 10, 5);
+      }
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 2);
+  return tex;
+}
+
+// ---- GAS PRICE SIGN ----
+function createGasSign() {
+  gasSignGroup = new THREE.Group();
+  gasSignGroup.position.set(0, 80, 0);
+
+  // Billboard frame
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8, roughness: 0.3 });
+  const backPlane = new THREE.Mesh(
+    new THREE.BoxGeometry(36, 18, 1),
+    new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5, roughness: 0.5 })
+  );
+  gasSignGroup.add(backPlane);
+
+  // Border frame
+  const topBar = new THREE.Mesh(new THREE.BoxGeometry(38, 1, 1.5), frameMat);
+  topBar.position.y = 9.5;
+  gasSignGroup.add(topBar);
+  const botBar = new THREE.Mesh(new THREE.BoxGeometry(38, 1, 1.5), frameMat);
+  botBar.position.y = -9.5;
+  gasSignGroup.add(botBar);
+  const lBar = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 1.5), frameMat);
+  lBar.position.x = -18.5;
+  gasSignGroup.add(lBar);
+  const rBar = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 1.5), frameMat);
+  rBar.position.x = 18.5;
+  gasSignGroup.add(rBar);
+
+  // Glow behind sign
+  const glowPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 22),
+    new THREE.MeshBasicMaterial({ color: 0xff3300, transparent: true, opacity: 0.15 })
+  );
+  glowPlane.position.z = -0.6;
+  gasSignGroup.add(glowPlane);
+  gasSignGroup.userData.glow = glowPlane;
+
+  // Support poles
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8 });
+  [-12, 12].forEach(x => {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 80, 8), poleMat);
+    pole.position.set(x, -49, 0);
+    gasSignGroup.add(pole);
+  });
+
+  // Light fixture on sign  
+  const signLight = new THREE.PointLight(0xff6600, 2, 60);
+  signLight.position.set(0, -10, 5);
+  gasSignGroup.add(signLight);
+  gasSignGroup.userData.signLight = signLight;
+
+  scene.add(gasSignGroup);
+}
+
+// ---- PLAYER VEHICLE ----
+function createPlayer() {
+  const group = new THREE.Group();
+  const color = new THREE.Color(playerColor);
+
+  // Cab
+  const cabGeo = new THREE.BoxGeometry(3, 2.5, 3);
+  const cabMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3 });
+  const cab = new THREE.Mesh(cabGeo, cabMat);
+  cab.position.set(0, 2, 1.5);
+  cab.castShadow = true;
+  group.add(cab);
+
+  // Windshield
+  const windGeo = new THREE.PlaneGeometry(2.6, 1.5);
+  const windMat = new THREE.MeshStandardMaterial({
+    color: 0x88aacc, transparent: true, opacity: 0.5, metalness: 0.9, roughness: 0.1
+  });
+  const wind = new THREE.Mesh(windGeo, windMat);
+  wind.position.set(0, 2.5, 3.01);
+  group.add(wind);
+
+  // Cargo body
+  const bodyGeo = new THREE.BoxGeometry(3.2, 3, 5);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.8), roughness: 0.5, metalness: 0.2 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(0, 2.2, -1.5);
+  body.castShadow = true;
+  group.add(body);
+
+  // Wheels
+  const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.4, 12);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+  const wheelPositions = [
+    [-1.6, 0.6, 2], [1.6, 0.6, 2],
+    [-1.6, 0.6, -2.5], [1.6, 0.6, -2.5]
+  ];
+  group.userData.wheels = [];
+  wheelPositions.forEach(([x, y, z]) => {
+    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+    wheel.position.set(x, y, z);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.castShadow = true;
+    group.add(wheel);
+    group.userData.wheels.push(wheel);
+  });
+
+  // Headlights
+  const hlGeo = new THREE.SphereGeometry(0.3, 8, 8);
+  const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+  [-1, 1].forEach(side => {
+    const hl = new THREE.Mesh(hlGeo, hlMat);
+    hl.position.set(side * 1.1, 1.8, 3.1);
+    group.add(hl);
+    const light = new THREE.SpotLight(0xffffcc, 1.5, 50, Math.PI / 6, 0.5);
+    light.position.copy(hl.position);
+    light.target.position.set(side * 1.1, 0, 20);
+    group.add(light);
+    group.add(light.target);
+  });
+
+  // Tail lights
+  [-1, 1].forEach(side => {
+    const tl = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    );
+    tl.position.set(side * 1.1, 1.5, -4.1);
+    group.add(tl);
+  });
+
+  // Exhaust particle system
+  const exhaustGeo = new THREE.BufferGeometry();
+  const exhaustCount = 30;
+  const ePos = new Float32Array(exhaustCount * 3);
+  const eAlpha = new Float32Array(exhaustCount);
+  exhaustGeo.setAttribute('position', new THREE.BufferAttribute(ePos, 3));
+  exhaustGeo.setAttribute('alpha', new THREE.BufferAttribute(eAlpha, 1));
+  const exhaustMat = new THREE.PointsMaterial({
+    color: 0x888888, size: 0.5, transparent: true, opacity: 0.3,
+    sizeAttenuation: true, depthWrite: false,
+  });
+  const exhaust = new THREE.Points(exhaustGeo, exhaustMat);
+  group.add(exhaust);
+  group.userData.exhaust = exhaust;
+  group.userData.exhaustParticles = [];
+  for (let i = 0; i < exhaustCount; i++) {
+    group.userData.exhaustParticles.push({ x: 0, y: 1, z: -4.2, life: 0, vx: 0, vy: 0, vz: 0 });
+  }
+
+  group.position.set(0, 0, 0);
+  group.userData.velocity = 0;
+  group.userData.angularVel = 0;
+  group.userData.speed = 0;
+  scene.add(group);
+  return group;
+}
+
+// ---- NPC CARS ----
+function createNPCCars() {
+  const colors = [0xff4444, 0x4488ff, 0x44dd44, 0xffaa00, 0xdd44dd, 0x44dddd, 0xffffff, 0xff8800];
+  for (let i = 0; i < NPC_CAR_COUNT; i++) {
+    const g = new THREE.Group();
+    const col = colors[Math.floor(Math.random() * colors.length)];
+    const carBody = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 1.2, 4),
+      new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.3 })
+    );
+    carBody.position.y = 0.9;
+    carBody.castShadow = true;
+    g.add(carBody);
+    const carTop = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 1, 2.2),
+      new THREE.MeshStandardMaterial({ color: col, roughness: 0.3, metalness: 0.4 })
+    );
+    carTop.position.y = 1.8;
+    g.add(carTop);
+    // Headlights
+    [-0.9, 0.9].forEach(s => {
+      const hl = new THREE.Mesh(
+        new THREE.SphereGeometry(0.15, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffffaa })
+      );
+      hl.position.set(s, 0.8, 2.05);
+      g.add(hl);
+    });
+
+    // Position on a random road
+    const roadIdx = Math.floor(Math.random() * 10) - 5;
+    const along = (Math.random() - 0.5) * CITY_SIZE * 1.5;
+    const isHorizontal = Math.random() > 0.5;
+    if (isHorizontal) {
+      g.position.set(along, 0, roadIdx * BLOCK_SIZE + 3);
+      g.rotation.y = Math.PI / 2;
+    } else {
+      g.position.set(roadIdx * BLOCK_SIZE + 3, 0, along);
+    }
+    g.userData.speed = 15 + Math.random() * 20;
+    g.userData.isHorizontal = isHorizontal;
+    g.userData.direction = Math.random() > 0.5 ? 1 : -1;
+    scene.add(g);
+    npcCars.push(g);
+  }
+}
+
+// ---- TREES ----
+function createTrees() {
+  for (let i = 0; i < TREE_COUNT; i++) {
+    const g = new THREE.Group();
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.3, 0.4, 3, 6),
+      new THREE.MeshStandardMaterial({ color: 0x664422 })
+    );
+    trunk.position.y = 1.5;
+    g.add(trunk);
+
+    const foliage = new THREE.Mesh(
+      new THREE.ConeGeometry(2.5, 5, 8),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.28 + Math.random() * 0.08, 0.5, 0.25 + Math.random() * 0.15) })
+    );
+    foliage.position.y = 5;
+    foliage.castShadow = true;
+    g.add(foliage);
+    g.userData.foliage = foliage;
+    g.userData.swayOffset = Math.random() * Math.PI * 2;
+
+    // Place in parks / gaps
+    g.position.set(
+      (Math.random() - 0.5) * CITY_SIZE * 1.5,
+      0,
+      (Math.random() - 0.5) * CITY_SIZE * 1.5
+    );
+    scene.add(g);
+  }
+}
+
+// ---- STREET LAMPS ----
+function createStreetLamps() {
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8 });
+  for (let i = 0; i < LAMP_COUNT; i++) {
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 8, 6), lampMat);
+    pole.position.y = 4;
+    g.add(pole);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 0.1), lampMat);
+    arm.position.set(1, 8, 0);
+    g.add(arm);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffcc66 })
+    );
+    bulb.position.set(2, 7.8, 0);
+    g.add(bulb);
+    const pLight = new THREE.PointLight(0xffcc66, 0.6, 25);
+    pLight.position.set(2, 7.8, 0);
+    g.add(pLight);
+
+    const roadIdx = Math.floor(Math.random() * 10) - 5;
+    g.position.set(
+      roadIdx * BLOCK_SIZE + ROAD_WIDTH / 2 + 1,
+      0,
+      (Math.random() - 0.5) * CITY_SIZE * 1.5
+    );
+    scene.add(g);
+  }
+}
+
+// ---- DUST PARTICLES ----
+function createDustParticles() {
+  const count = 500;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 300;
+    pos[i * 3 + 1] = Math.random() * 80;
+    pos[i * 3 + 2] = (Math.random() - 0.5) * 300;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffddaa, size: 0.3, transparent: true, opacity: 0.3,
+    depthWrite: false, sizeAttenuation: true,
+  });
+  dustParticles = new THREE.Points(geo, mat);
+  scene.add(dustParticles);
+}
+
+// ---- OIL BARRELS ----
+function createBarrel(tier, position) {
+  const g = new THREE.Group();
+  const tierData = {
+    bronze: { color: 0xcd7f32, emissive: 0x442200, priceReduction: 0.05, glow: 0xffaa44, glowIntensity: 0.8, label: 'Bronze' },
+    silver: { color: 0xc0c0c0, emissive: 0x333344, priceReduction: 0.15, glow: 0xccccff, glowIntensity: 1.2, label: 'Silver' },
+    gold:   { color: 0xffd700, emissive: 0x664400, priceReduction: 0.50, glow: 0xffdd00, glowIntensity: 2.0, label: 'Gold' },
+  };
+  const td = tierData[tier];
+
+  // Barrel body
+  const barrelGeo = new THREE.CylinderGeometry(1, 1, 2, 12);
+  const barrelMat = new THREE.MeshStandardMaterial({
+    color: td.color,
+    emissive: td.emissive,
+    emissiveIntensity: 0.3,
+    metalness: tier === 'silver' ? 0.8 : 0.4,
+    roughness: tier === 'bronze' ? 0.7 : 0.3,
+  });
+  const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+  barrel.castShadow = true;
+  g.add(barrel);
+
+  // Metal bands
+  [-0.6, 0, 0.6].forEach(y => {
+    const band = new THREE.Mesh(
+      new THREE.TorusGeometry(1.02, 0.05, 6, 12),
+      new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.9 })
+    );
+    band.rotation.x = Math.PI / 2;
+    band.position.y = y;
+    g.add(band);
+  });
+
+  // Particle ring
+  const ringCount = 20;
+  const ringGeo = new THREE.BufferGeometry();
+  const ringPos = new Float32Array(ringCount * 3);
+  ringGeo.setAttribute('position', new THREE.BufferAttribute(ringPos, 3));
+  const ringMat = new THREE.PointsMaterial({
+    color: td.glow, size: 0.3, transparent: true, opacity: 0.6, depthWrite: false,
+  });
+  const ring = new THREE.Points(ringGeo, ringMat);
+  g.add(ring);
+  g.userData.ring = ring;
+  g.userData.ringCount = ringCount;
+
+  // Point light
+  const bLight = new THREE.PointLight(td.glow, td.glowIntensity, 20);
+  bLight.position.y = 1;
+  g.add(bLight);
+  g.userData.bLight = bLight;
+
+  // Gold beacon
+  if (tier === 'gold') {
+    const beaconGeo = new THREE.CylinderGeometry(0.1, 0.5, 40, 8);
+    const beaconMat = new THREE.MeshBasicMaterial({
+      color: 0xffdd00, transparent: true, opacity: 0.15,
+    });
+    const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+    beacon.position.y = 20;
+    g.add(beacon);
+  }
+
+  g.position.copy(position);
+  g.position.y = 1.5;
+  g.userData.tier = tier;
+  g.userData.td = td;
+  g.userData.collected = false;
+  g.userData.spawnTime = Date.now();
+  g.userData.baseY = 1.5;
+
+  scene.add(g);
+  return g;
+}
+
+function spawnBarrels() {
+  // Clear existing
+  barrels.forEach(b => scene.remove(b));
+  barrels = [];
+
+  for (let i = 0; i < BARREL_COUNT; i++) {
+    const rand = Math.random();
+    const tier = rand < 0.06 ? 'gold' : rand < 0.25 ? 'silver' : 'bronze';
+    const pos = getRandomBarrelPosition();
+    barrels.push(createBarrel(tier, pos));
+  }
+}
+
+function getRandomBarrelPosition() {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const x = (Math.random() - 0.5) * CITY_SIZE * 1.4;
+    const z = (Math.random() - 0.5) * CITY_SIZE * 1.4;
+    // Check not inside a building
+    let inBuilding = false;
+    for (const b of buildings) {
+      if (Math.abs(x - b.x) < b.w / 2 + 2 && Math.abs(z - b.z) < b.d / 2 + 2) {
+        inBuilding = true;
+        break;
+      }
+    }
+    if (!inBuilding) return new THREE.Vector3(x, 1.5, z);
+  }
+  return new THREE.Vector3((Math.random() - 0.5) * 100, 1.5, (Math.random() - 0.5) * 100);
+}
+
+function respawnBarrel(index) {
+  if (!gameActive) return;
+  const oldBarrel = barrels[index];
+  if (oldBarrel) scene.remove(oldBarrel);
+  const rand = Math.random();
+  const tier = rand < 0.06 ? 'gold' : rand < 0.25 ? 'silver' : 'bronze';
+  const pos = getRandomBarrelPosition();
+  barrels[index] = createBarrel(tier, pos);
+}
+
+// ---- FAKE MULTIPLAYER ----
+const fakeNames = ['Sarah', 'Mike', 'Jake', 'Emma', 'Liam', 'Olivia', 'Noah', 'Ava', 'Ethan', 'Mia', 'Lucas', 'Harper'];
+let fakePlayerInterval = null;
+let lastFoghornTime = 0;
+let sonarCooldown = 0;
+
+function startFakePlayers() {
+  const baseCount = 5 + Math.floor(Math.random() * 8);
+  document.getElementById('playerCount').textContent = baseCount;
+
+  // Create visible fake players
+  for (let i = 0; i < Math.min(4, baseCount); i++) {
+    const g = new THREE.Group();
+    const col = [0xff4444, 0x4488ff, 0x44dd44, 0xffaa00, 0xdd44dd][Math.floor(Math.random() * 5)];
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(3, 2.5, 5),
+      new THREE.MeshStandardMaterial({ color: col, roughness: 0.4 })
+    );
+    body.position.y = 1.8;
+    g.add(body);
+    const top = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 1.5, 2.5),
+      new THREE.MeshStandardMaterial({ color: col, roughness: 0.3 })
+    );
+    top.position.set(0, 3, 0.8);
+    g.add(top);
+    // Headlights
+    [-0.9, 0.9].forEach(s => {
+      const hl = new THREE.Mesh(
+        new THREE.SphereGeometry(0.2, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffffaa })
+      );
+      hl.position.set(s, 1.5, 2.6);
+      g.add(hl);
+    });
+
+    g.position.set(
+      (Math.random() - 0.5) * 200,
+      0,
+      (Math.random() - 0.5) * 200
+    );
+    g.userData.targetPos = g.position.clone();
+    g.userData.name = fakeNames[i];
+    scene.add(g);
+    fakePlayers.push(g);
+  }
+
+  // Periodic fake barrel finds
+  fakePlayerInterval = setInterval(() => {
+    if (!gameActive) return;
+    const name = fakeNames[Math.floor(Math.random() * fakeNames.length)];
+    const tierRand = Math.random();
+    const tier = tierRand < 0.05 ? 'gold' : tierRand < 0.2 ? 'silver' : 'bronze';
+    const td = { bronze: 0.05, silver: 0.15, gold: 0.50 };
+    const reduction = td[tier];
+    const emoji = tier === 'gold' ? '🟡' : tier === 'silver' ? '⚪' : '🟤';
+
+    currentPrice = Math.max(0.50, currentPrice - reduction);
+    cityBarrelCount++;
+    updateHUD();
+
+    addEventFeed(`${emoji} ${name} found a ${tier.charAt(0).toUpperCase() + tier.slice(1)} Barrel! -$${reduction.toFixed(2)}`);
+
+    if (soundEnabled && audio.ctx) {
+      audio.playNote(600, 0.2, 'sine', 0.05);
+    }
+
+    // Check victory
+    if (currentPrice <= targetPrice) {
+      triggerVictory();
+    }
+  }, 4000 + Math.random() * 6000);
+}
+
+// ---- EVENT FEED ----
+function addEventFeed(text) {
+  const feed = document.getElementById('eventFeed');
+  const item = document.createElement('div');
+  item.className = 'feed-item';
+  item.textContent = text;
+  feed.appendChild(item);
+  // Remove after animation
+  setTimeout(() => item.remove(), 5000);
+  // Keep feed short
+  while (feed.children.length > 5) feed.removeChild(feed.firstChild);
+}
+
+// ---- MINIMAP ----
+function updateMinimap() {
+  const canvas = document.getElementById('minimapCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(10,10,30,0.8)';
+  ctx.fillRect(0, 0, 160, 160);
+
+  const scale = 0.25;
+  const cx = 80, cy = 80;
+
+  if (!player) return;
+  const px = player.position.x;
+  const pz = player.position.z;
+
+  // Buildings
+  ctx.fillStyle = 'rgba(80,80,120,0.5)';
+  buildings.forEach(b => {
+    const sx = cx + (b.x - px) * scale;
+    const sy = cy + (b.z - pz) * scale;
+    if (Math.abs(sx - cx) < 85 && Math.abs(sy - cy) < 85) {
+      ctx.fillRect(sx - b.w * scale / 2, sy - b.d * scale / 2, b.w * scale, b.d * scale);
+    }
+  });
+
+  // Barrels
+  barrels.forEach(b => {
+    if (b.userData.collected) return;
+    const sx = cx + (b.position.x - px) * scale;
+    const sy = cy + (b.position.z - pz) * scale;
+    if (Math.abs(sx - cx) < 85 && Math.abs(sy - cy) < 85) {
+      ctx.fillStyle = b.userData.tier === 'gold' ? '#ffd700' :
+                      b.userData.tier === 'silver' ? '#c0c0c0' : '#cd7f32';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Player (center)
+  ctx.fillStyle = playerColor;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Direction indicator
+  const angle = player.rotation.y;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.sin(angle) * 12, cy - Math.cos(angle) * 12);
+  ctx.stroke();
+}
+
+// ---- HUD UPDATE ----
+function updateHUD() {
+  const priceEl = document.getElementById('hudPrice');
+  const priceStr = `⛽ $${currentPrice.toFixed(2)}/gal`;
+  priceEl.textContent = priceStr;
+
+  const pct = (START_PRICE - currentPrice) / (START_PRICE - targetPrice);
+  priceEl.className = 'hud-price' + (pct > 0.7 ? ' low' : pct > 0.35 ? ' medium' : '');
+
+  document.getElementById('playerBarrels').textContent = playerBarrelCount;
+  document.getElementById('cityBarrels').textContent = cityBarrelCount;
+
+  // Sign glow color
+  if (gasSignGroup && gasSignGroup.userData.glow) {
+    const glowColor = pct > 0.7 ? 0x00ff44 : pct > 0.35 ? 0xffaa00 : 0xff3300;
+    gasSignGroup.userData.glow.material.color.setHex(glowColor);
+    gasSignGroup.userData.signLight.color.setHex(glowColor);
+  }
+}
+
+function updateTimer() {
+  if (!gameActive) return;
+  timeRemaining -= 1;
+  const mins = Math.floor(timeRemaining / 60);
+  const secs = timeRemaining % 60;
+  const timerEl = document.getElementById('hudTimer');
+  timerEl.textContent = `🕐 ${mins}:${secs.toString().padStart(2, '0')}`;
+  timerEl.className = 'hud-timer' + (timeRemaining < 60 ? ' urgent' : '');
+
+  if (timeRemaining <= 0) {
+    triggerGameOver();
+  }
+}
+
+// ---- BARREL PICKUP ----
+function checkBarrelPickup() {
+  if (!player || !gameActive) return;
+
+  let closestDist = Infinity;
+  let closestBarrel = null;
+
+  for (let i = 0; i < barrels.length; i++) {
+    const b = barrels[i];
+    if (b.userData.collected) continue;
+
+    const dist = player.position.distanceTo(b.position);
+
+    if (dist < closestDist) {
+      closestDist = dist;
+      closestBarrel = { barrel: b, index: i, dist };
+    }
+
+    // Pickup range
+    if (dist < 5) {
+      collectBarrel(b, i);
+    }
+  }
+
+  // Proximity indicator
+  const proxEl = document.getElementById('proximityIndicator');
+  const proxDist = document.getElementById('proximityDist');
+  if (closestBarrel && closestDist < 80 && !closestBarrel.barrel.userData.collected) {
+    proxEl.classList.add('active');
+    proxDist.textContent = `${Math.round(closestDist)}m`;
+    proxEl.style.color = closestBarrel.barrel.userData.tier === 'gold' ? '#ffd700' :
+                         closestBarrel.barrel.userData.tier === 'silver' ? '#c0c0c0' : '#ffaa00';
+    proximityBarrel = closestBarrel;
+
+    // Sonar ping
+    const now = Date.now();
+    const pingInterval = 300 + (closestDist / 80) * 1700; // Faster when closer
+    if (now - sonarCooldown > pingInterval && soundEnabled) {
+      sonarCooldown = now;
+      audio.playSonarPing(1 - closestDist / 80);
+    }
+  } else {
+    proxEl.classList.remove('active');
+    proximityBarrel = null;
+  }
+}
+
+function collectBarrel(barrel, index) {
+  if (barrel.userData.collected) return;
+  barrel.userData.collected = true;
+
+  const td = barrel.userData.td;
+  const tier = barrel.userData.tier;
+
+  // Update price
+  currentPrice = Math.max(0.50, currentPrice - td.priceReduction);
+  playerBarrelCount++;
+  cityBarrelCount++;
+  updateHUD();
+
+  // SFX
+  audio.playBarrelPickup(tier);
+  setTimeout(() => audio.playPriceFlip(), 200);
+
+  // Visual: barrel spirals up
+  const startY = barrel.position.y;
+  const startTime = Date.now();
+  const spiralAnim = () => {
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (elapsed > 1) {
+      scene.remove(barrel);
+      return;
+    }
+    barrel.position.y = startY + elapsed * 15;
+    barrel.rotation.y += 0.3;
+    barrel.scale.multiplyScalar(0.95);
+    if (barrel.userData.bLight) barrel.userData.bLight.intensity *= 0.95;
+    requestAnimationFrame(spiralAnim);
+  };
+  spiralAnim();
+
+  // Screen flash
+  const flash = document.getElementById('pickupFlash');
+  flash.className = `pickup-flash ${tier}`;
+  setTimeout(() => flash.className = 'pickup-flash', 300);
+
+  // Price drop popup
+  const popup = document.createElement('div');
+  popup.className = 'price-drop-popup';
+  popup.textContent = `-$${td.priceReduction.toFixed(2)} OFF!`;
+  document.body.appendChild(popup);
+  setTimeout(() => popup.remove(), 1500);
+
+  // Event feed
+  const emoji = tier === 'gold' ? '🟡' : tier === 'silver' ? '⚪' : '🟤';
+  addEventFeed(`${emoji} You found a ${td.label} Barrel! -$${td.priceReduction.toFixed(2)}`);
+
+  // Respawn
+  setTimeout(() => respawnBarrel(index), BARREL_RESPAWN_TIME);
+
+  // Check victory
+  if (currentPrice <= targetPrice) {
+    triggerVictory();
+  }
+}
+
+// ---- VICTORY / GAME OVER ----
+function triggerVictory() {
+  if (!gameActive) return;
+  gameActive = false;
+  audio.playVictory();
+
+  // Confetti burst
+  spawnConfetti();
+
+  document.getElementById('victoryPrice').textContent = `$${currentPrice.toFixed(2)}/gal`;
+  document.getElementById('victoryStats').innerHTML =
+    `You found <strong>${playerBarrelCount}</strong> barrels!<br>
+     City total: <strong>${cityBarrelCount}</strong> barrels<br>
+     Time remaining: <strong>${Math.floor(timeRemaining / 60)}:${(timeRemaining % 60).toString().padStart(2, '0')}</strong>`;
+  
+  setTimeout(() => {
+    document.getElementById('victoryOverlay').style.display = 'flex';
+  }, 2000);
+}
+
+function triggerGameOver() {
+  if (!gameActive) return;
+  gameActive = false;
+  document.getElementById('gameOverPrice').textContent = `$${currentPrice.toFixed(2)}/gal`;
+  document.getElementById('gameOverStats').textContent =
+    `Needed $${targetPrice.toFixed(2)} — you were $${(currentPrice - targetPrice).toFixed(2)} away!`;
+  document.getElementById('gameOverOverlay').style.display = 'flex';
+}
+
+function spawnConfetti() {
+  const colors = [0xff4444, 0x44ff44, 0x4444ff, 0xffff44, 0xff44ff, 0x44ffff, 0xff8800, 0xffffff];
+  for (let i = 0; i < 200; i++) {
+    const geo = new THREE.PlaneGeometry(0.5 + Math.random() * 0.5, 0.5 + Math.random() * 0.5);
+    const mat = new THREE.MeshBasicMaterial({
+      color: colors[Math.floor(Math.random() * colors.length)],
+      side: THREE.DoubleSide,
+      transparent: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      player.position.x + (Math.random() - 0.5) * 40,
+      30 + Math.random() * 40,
+      player.position.z + (Math.random() - 0.5) * 40,
+    );
+    mesh.userData.vel = new THREE.Vector3(
+      (Math.random() - 0.5) * 2,
+      -(2 + Math.random() * 3),
+      (Math.random() - 0.5) * 2,
+    );
+    mesh.userData.rotSpeed = new THREE.Vector3(
+      Math.random() * 5, Math.random() * 5, Math.random() * 5
+    );
+    scene.add(mesh);
+    confettiParticles.push(mesh);
+  }
+}
+
+// ---- GAME RESET ----
+function resetGame() {
+  currentPrice = START_PRICE;
+  targetPrice = TARGET_PRICE;
+  timeRemaining = TIMER_SECONDS;
+  playerBarrelCount = 0;
+  cityBarrelCount = 0;
+  gameActive = false;
+  if (fakePlayerInterval) clearInterval(fakePlayerInterval);
+
+  // Remove old barrels
+  barrels.forEach(b => scene.remove(b));
+  barrels = [];
+
+  // Remove confetti
+  confettiParticles.forEach(c => scene.remove(c));
+  confettiParticles = [];
+
+  // Remove fake players
+  fakePlayers.forEach(fp => scene.remove(fp));
+  fakePlayers = [];
+
+  if (player) {
+    player.position.set(0, 0, 0);
+    player.rotation.y = 0;
+    player.userData.velocity = 0;
+    player.userData.speed = 0;
+  }
+}
+
+// ---- START GAME ----
+function startGame() {
+  playerName = document.getElementById('nameInput').value.trim() || 'Player';
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('hud').style.display = 'block';
+  document.getElementById('minimap').style.display = 'block';
+  document.getElementById('hudBottom').style.display = 'flex';
+  document.getElementById('leaderTicker').style.display = 'block';
+
+  if (isMobile) {
+    document.getElementById('mobileControls').style.display = 'block';
+  }
+
+  // Audio init on user gesture
+  if (!audio.ctx) {
+    audio.init();
+    audio.startMusic();
+  }
+  audio.setMute(!soundEnabled);
+
+  // Create player if needed
+  if (!player) {
+    player = createPlayer();
+  }
+
+  // Spawn barrels
+  spawnBarrels();
+
+  // Fake multiplayer
+  startFakePlayers();
+
+  // Start timer
+  gameActive = true;
+  updateHUD();
+
+  // Timer interval
+  if (window._timerInterval) clearInterval(window._timerInterval);
+  window._timerInterval = setInterval(updateTimer, 1000);
+
+  // Foghorn interval
+  if (window._foghornInterval) clearInterval(window._foghornInterval);
+  window._foghornInterval = setInterval(() => {
+    if (gameActive && soundEnabled) audio.playFoghorn();
+  }, 30000);
+
+  // Lock pointer on desktop
+  if (!isMobile) {
+    renderer.domElement.addEventListener('click', () => {
+      renderer.domElement.requestPointerLock();
+    });
+  }
+}
+
+// ---- INPUT ----
+function setupEvents() {
+  window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+  window.addEventListener('keyup', e => {
+    keys[e.key.toLowerCase()] = false;
+    if (e.key.toLowerCase() === 'h') audio.playHorn();
+    if (e.key.toLowerCase() === 'm') {
+      soundEnabled = !soundEnabled;
+      document.getElementById('soundToggle').textContent = soundEnabled ? '🔊' : '🔇';
+      audio.setMute(!soundEnabled);
+    }
+  });
+
+  // Mouse look
+  document.addEventListener('mousemove', e => {
+    if (document.pointerLockElement === renderer.domElement) {
+      mouseDX += e.movementX * 0.003;
+    }
+  });
+
+  // Mobile joystick
+  const joystickZone = document.getElementById('joystickZone');
+  const thumb = document.getElementById('joystickThumb');
+  let joystickActive = false;
+  let jxStart = 0, jyStart = 0;
+
+  const handleJoystickStart = (e) => {
+    e.preventDefault();
+    joystickActive = true;
+    const t = e.touches ? e.touches[0] : e;
+    jxStart = t.clientX;
+    jyStart = t.clientY;
+  };
+  const handleJoystickMove = (e) => {
+    if (!joystickActive) return;
+    e.preventDefault();
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - jxStart;
+    const dy = t.clientY - jyStart;
+    const maxR = 50;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const clampDist = Math.min(dist, maxR);
+    const angle = Math.atan2(dy, dx);
+    const cx = Math.cos(angle) * clampDist;
+    const cy = Math.sin(angle) * clampDist;
+    thumb.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+    joystickInput.x = cx / maxR;
+    joystickInput.y = -cy / maxR;
+  };
+  const handleJoystickEnd = () => {
+    joystickActive = false;
+    thumb.style.transform = 'translate(-50%, -50%)';
+    joystickInput.x = 0;
+    joystickInput.y = 0;
+  };
+
+  joystickZone.addEventListener('touchstart', handleJoystickStart, { passive: false });
+  joystickZone.addEventListener('touchmove', handleJoystickMove, { passive: false });
+  joystickZone.addEventListener('touchend', handleJoystickEnd);
+
+  // Mobile camera
+  let lastTouchX = 0;
+  renderer.domElement.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      if (t.clientX > window.innerWidth * 0.45) {
+        lastTouchX = t.clientX;
+      }
+    }
+  }, { passive: true });
+  renderer.domElement.addEventListener('touchmove', e => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      if (t.clientX > window.innerWidth * 0.45) {
+        mouseDX += (t.clientX - lastTouchX) * 0.005;
+        lastTouchX = t.clientX;
+      }
+    }
+  }, { passive: true });
+
+  // Horn button mobile
+  document.getElementById('hornBtn').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    audio.playHorn();
+  });
+
+  // Resize
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+// ---- GAME LOOP ----
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.getElapsedTime();
+
+  if (gameActive && player) {
+    // ---- PLAYER MOVEMENT ----
+    let accel = 0;
+    let steer = 0;
+
+    if (isMobile) {
+      accel = joystickInput.y;
+      steer = -joystickInput.x;
+    } else {
+      if (keys['w'] || keys['arrowup']) accel = 1;
+      if (keys['s'] || keys['arrowdown']) accel = -0.5;
+      if (keys['a'] || keys['arrowleft']) steer = 1;
+      if (keys['d'] || keys['arrowright']) steer = -1;
+    }
+
+    // Camera yaw from mouse
+    cameraYaw += mouseDX;
+    mouseDX = 0;
+
+    // Speed
+    const maxSpeed = 40;
+    const acceleration = 35;
+    const friction = 0.92;
+
+    player.userData.velocity += accel * acceleration * dt;
+    player.userData.velocity *= friction;
+    player.userData.velocity = Math.max(-maxSpeed * 0.4, Math.min(maxSpeed, player.userData.velocity));
+    player.userData.speed = Math.abs(player.userData.velocity);
+
+    // Steering (only when moving)
+    const steerAmount = steer * 2.5 * dt * Math.min(1, player.userData.speed / 10);
+    player.rotation.y += steerAmount;
+
+    // Movement
+    const moveX = Math.sin(player.rotation.y) * player.userData.velocity * dt;
+    const moveZ = Math.cos(player.rotation.y) * player.userData.velocity * dt;
+
+    const newX = player.position.x + moveX;
+    const newZ = player.position.z + moveZ;
+
+    // Building collision
+    let blocked = false;
+    for (const b of buildings) {
+      const halfW = b.w / 2 + 2;
+      const halfD = b.d / 2 + 2;
+      if (Math.abs(newX - b.x) < halfW && Math.abs(newZ - b.z) < halfD) {
+        blocked = true;
+        player.userData.velocity *= -0.3; // Bounce
+        break;
+      }
+    }
+
+    if (!blocked) {
+      player.position.x = newX;
+      player.position.z = newZ;
+    }
+
+    // Clamp to city bounds
+    const bound = CITY_SIZE * 0.9;
+    player.position.x = Math.max(-bound, Math.min(bound, player.position.x));
+    player.position.z = Math.max(-bound, Math.min(bound, player.position.z));
+
+    // Wheel rotation
+    player.userData.wheels.forEach(w => {
+      w.rotation.x += player.userData.velocity * dt * 2;
+    });
+
+    // Engine audio
+    audio.updateEngine(player.userData.speed);
+
+    // Exhaust particles
+    updateExhaust(player, dt);
+
+    // ---- CAMERA ----
+    const camDist = 18 + player.userData.speed * 0.15;
+    const camHeight = 8 + player.userData.speed * 0.08;
+    const camAngle = player.rotation.y + Math.PI + cameraYaw;
+    const idealX = player.position.x + Math.sin(camAngle) * camDist;
+    const idealZ = player.position.z + Math.cos(camAngle) * camDist;
+    const idealY = player.position.y + camHeight;
+
+    camera.position.lerp(new THREE.Vector3(idealX, idealY, idealZ), 5 * dt);
+    camera.lookAt(
+      player.position.x,
+      player.position.y + 3,
+      player.position.z
+    );
+
+    // ---- BARREL CHECK ----
+    checkBarrelPickup();
+  }
+
+  // ---- ANIMATE BARRELS ----
+  barrels.forEach(b => {
+    if (b.userData.collected) return;
+    b.rotation.y += dt * 1.5;
+    b.position.y = b.userData.baseY + Math.sin(time * 2 + b.position.x) * 0.4;
+
+    // Particle ring
+    const ring = b.userData.ring;
+    if (ring) {
+      const rp = ring.geometry.attributes.position;
+      for (let i = 0; i < b.userData.ringCount; i++) {
+        const angle = (i / b.userData.ringCount) * Math.PI * 2 + time * 2;
+        rp.setX(i, Math.cos(angle) * 1.8);
+        rp.setY(i, Math.sin(time * 3 + i) * 0.5);
+        rp.setZ(i, Math.sin(angle) * 1.8);
+      }
+      rp.needsUpdate = true;
+    }
+  });
+
+  // ---- GAS SIGN ----
+  if (gasSignGroup) {
+    gasSignGroup.lookAt(camera.position.x, gasSignGroup.position.y, camera.position.z);
+  }
+
+  // ---- NPC CARS ----
+  npcCars.forEach(car => {
+    const speed = car.userData.speed * car.userData.direction;
+    if (car.userData.isHorizontal) {
+      car.position.x += speed * dt;
+      if (Math.abs(car.position.x) > CITY_SIZE) car.position.x *= -0.95;
+    } else {
+      car.position.z += speed * dt;
+      if (Math.abs(car.position.z) > CITY_SIZE) car.position.z *= -0.95;
+    }
+  });
+
+  // ---- FAKE PLAYERS ----
+  fakePlayers.forEach(fp => {
+    // Random wander
+    if (Math.random() < 0.01) {
+      fp.userData.targetPos = new THREE.Vector3(
+        fp.position.x + (Math.random() - 0.5) * 80,
+        0,
+        fp.position.z + (Math.random() - 0.5) * 80,
+      );
+    }
+    fp.position.lerp(fp.userData.targetPos, dt * 0.5);
+    const dir = fp.userData.targetPos.clone().sub(fp.position);
+    if (dir.length() > 1) {
+      fp.rotation.y = Math.atan2(dir.x, dir.z);
+    }
+  });
+
+  // ---- TREE SWAY ----
+  scene.children.forEach(obj => {
+    if (obj.userData && obj.userData.foliage) {
+      obj.userData.foliage.rotation.z = Math.sin(time * 1.5 + obj.userData.swayOffset) * 0.03;
+    }
+  });
+
+  // ---- DUST ----
+  if (dustParticles) {
+    const dPos = dustParticles.geometry.attributes.position;
+    for (let i = 0; i < dPos.count; i++) {
+      let y = dPos.getY(i);
+      y -= dt * 2;
+      if (y < 0) y = 80;
+      dPos.setY(i, y);
+      dPos.setX(i, dPos.getX(i) + Math.sin(time + i) * dt * 0.5);
+    }
+    dPos.needsUpdate = true;
+  }
+
+  // ---- CONFETTI ----
+  confettiParticles.forEach((c, i) => {
+    c.position.add(c.userData.vel.clone().multiplyScalar(dt));
+    c.rotation.x += c.userData.rotSpeed.x * dt;
+    c.rotation.y += c.userData.rotSpeed.y * dt;
+    c.material.opacity -= dt * 0.1;
+    if (c.material.opacity <= 0) {
+      scene.remove(c);
+      confettiParticles.splice(i, 1);
+    }
+  });
+
+  // ---- MINIMAP ----
+  if (gameActive && player && Date.now() % 3 === 0) {
+    updateMinimap();
+  }
+
+  renderer.render(scene, camera);
+}
+
+function updateExhaust(p, dt) {
+  if (!p.userData.exhaust) return;
+  const particles = p.userData.exhaustParticles;
+  const speed = p.userData.speed;
+
+  // Emit new particles when moving
+  if (speed > 2) {
+    for (const part of particles) {
+      if (part.life <= 0) {
+        // World position of exhaust
+        const wPos = new THREE.Vector3(
+          (Math.random() - 0.5) * 0.5,
+          1 + Math.random() * 0.3,
+          -4.2
+        );
+        wPos.applyQuaternion(p.quaternion);
+        wPos.add(p.position);
+        part.x = wPos.x;
+        part.y = wPos.y;
+        part.z = wPos.z;
+        part.vx = (Math.random() - 0.5) * 1;
+        part.vy = 1 + Math.random() * 2;
+        part.vz = (Math.random() - 0.5) * 1;
+        part.life = 1;
+        break;
+      }
+    }
+  }
+
+  const positions = p.userData.exhaust.geometry.attributes.position;
+  for (let i = 0; i < particles.length; i++) {
+    const part = particles[i];
+    if (part.life > 0) {
+      part.x += part.vx * dt;
+      part.y += part.vy * dt;
+      part.z += part.vz * dt;
+      part.life -= dt * 1.5;
+    }
+    positions.setXYZ(i, part.life > 0 ? part.x : 0, part.life > 0 ? part.y : -100, part.life > 0 ? part.z : 0);
+  }
+  positions.needsUpdate = true;
+}
+
+// ---- INIT ----
+window.addEventListener('DOMContentLoaded', init);

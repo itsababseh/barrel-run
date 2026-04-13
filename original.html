@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>⛽ BARREL RUN — Lower Gas Prices!</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { overflow: hidden; background: #000; font-family: 'Segoe UI', Arial, sans-serif; }
+canvas { display: block; }
+
+/* START SCREEN */
+#startScreen {
+  position: fixed; inset: 0; z-index: 100;
+  background: linear-gradient(135deg, #1a0a2e, #16213e, #0a1628);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #fff;
+}
+#startScreen h1 {
+  font-size: 4em; margin-bottom: 0.1em;
+  text-shadow: 0 0 40px rgba(255,165,0,0.6), 0 0 80px rgba(255,100,0,0.3);
+}
+#startScreen .subtitle {
+  font-size: 1.2em; color: #f90; margin-bottom: 2em; text-align: center;
+}
+#startScreen .price-preview {
+  font-size: 5em; font-weight: 900; color: #ff4444;
+  text-shadow: 0 0 30px rgba(255,0,0,0.5);
+  margin-bottom: 0.2em; font-family: 'Courier New', monospace;
+}
+#startScreen .target-preview {
+  font-size: 1.5em; color: #44ff44; margin-bottom: 1.5em;
+}
+.input-group { margin-bottom: 1em; text-align: center; }
+.input-group label { display: block; margin-bottom: 0.3em; color: #aaa; font-size: 0.9em; }
+#nameInput {
+  padding: 12px 20px; font-size: 1.2em; border: 2px solid #f90;
+  border-radius: 8px; background: rgba(255,255,255,0.1); color: #fff;
+  text-align: center; outline: none; width: 250px;
+}
+#nameInput:focus { border-color: #ffcc00; box-shadow: 0 0 15px rgba(255,200,0,0.3); }
+.color-picker { display: flex; gap: 10px; justify-content: center; margin: 1em 0; }
+.color-opt {
+  width: 45px; height: 45px; border-radius: 50%; cursor: pointer;
+  border: 3px solid transparent; transition: all 0.2s;
+}
+.color-opt:hover, .color-opt.selected { border-color: #fff; transform: scale(1.2); }
+#startBtn {
+  padding: 18px 50px; font-size: 1.5em; font-weight: 700;
+  background: linear-gradient(135deg, #f90, #ff6600);
+  color: #fff; border: none; border-radius: 12px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 2px; margin-top: 1em;
+  transition: all 0.2s; box-shadow: 0 4px 25px rgba(255,150,0,0.4);
+}
+#startBtn:hover { transform: scale(1.05); box-shadow: 0 6px 35px rgba(255,150,0,0.6); }
+.controls-hint {
+  margin-top: 2em; color: #666; font-size: 0.85em; text-align: center;
+}
+.controls-hint span { color: #999; }
+
+/* HUD */
+#hud {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10; pointer-events: none;
+  padding: 15px 20px;
+}
+.hud-top {
+  display: flex; justify-content: center; align-items: center;
+  flex-direction: column;
+}
+.hud-price {
+  font-size: 3.5em; font-weight: 900; font-family: 'Courier New', monospace;
+  color: #ff4444; text-shadow: 0 0 20px rgba(255,0,0,0.5);
+  transition: color 0.5s;
+}
+.hud-price.medium { color: #ffaa00; text-shadow: 0 0 20px rgba(255,170,0,0.5); }
+.hud-price.low { color: #44ff44; text-shadow: 0 0 20px rgba(0,255,0,0.5); }
+.hud-target {
+  font-size: 1.1em; color: #44ff44; margin-top: 2px;
+}
+.hud-timer {
+  font-size: 1.4em; color: #ffcc00; margin-top: 4px;
+  font-family: 'Courier New', monospace;
+}
+.hud-timer.urgent { color: #ff4444; animation: pulse 0.5s ease infinite alternate; }
+@keyframes pulse { to { opacity: 0.5; } }
+.hud-bottom {
+  position: fixed; bottom: 15px; left: 20px; right: 20px; z-index: 10;
+  pointer-events: none; display: flex; justify-content: space-between; align-items: flex-end;
+}
+.hud-stats {
+  background: rgba(0,0,0,0.6); border-radius: 10px; padding: 10px 15px;
+  backdrop-filter: blur(5px);
+}
+.hud-stats div { color: #ccc; font-size: 0.95em; margin: 3px 0; }
+.hud-stats span { color: #fff; font-weight: 700; }
+#eventFeed {
+  position: fixed; bottom: 80px; left: 20px; z-index: 10;
+  pointer-events: none; max-width: 400px;
+}
+.feed-item {
+  background: rgba(0,0,0,0.7); color: #fff; padding: 8px 14px;
+  border-radius: 8px; margin-top: 6px; font-size: 0.9em;
+  animation: feedIn 0.3s ease, feedOut 0.5s ease 4s forwards;
+  backdrop-filter: blur(5px); border-left: 3px solid #f90;
+}
+@keyframes feedIn { from { transform: translateX(-30px); opacity: 0; } }
+@keyframes feedOut { to { opacity: 0; transform: translateY(-10px); } }
+
+.hud-proximity {
+  position: fixed; top: 50%; right: 30px; transform: translateY(-50%);
+  z-index: 10; pointer-events: none; text-align: right;
+}
+.proximity-indicator {
+  font-size: 1.1em; color: #ffaa00; opacity: 0; transition: opacity 0.3s;
+}
+.proximity-indicator.active { opacity: 1; }
+.proximity-dist { font-family: 'Courier New', monospace; font-weight: 700; }
+
+/* BARREL PICKUP FLASH */
+.pickup-flash {
+  position: fixed; inset: 0; z-index: 15; pointer-events: none;
+  border: 4px solid transparent; transition: border-color 0.1s;
+}
+.pickup-flash.bronze { border-color: rgba(205,127,50,0.6); }
+.pickup-flash.silver { border-color: rgba(192,192,192,0.6); }
+.pickup-flash.gold { border-color: rgba(255,215,0,0.8); }
+
+/* PRICE DROP POPUP */
+.price-drop-popup {
+  position: fixed; top: 20%; left: 50%; transform: translateX(-50%);
+  z-index: 20; pointer-events: none; font-size: 2.5em; font-weight: 900;
+  color: #44ff44; text-shadow: 0 0 20px rgba(0,255,0,0.5);
+  animation: popUp 1.5s ease forwards;
+}
+@keyframes popUp {
+  0% { transform: translateX(-50%) scale(0.5); opacity: 0; }
+  20% { transform: translateX(-50%) scale(1.1); opacity: 1; }
+  100% { transform: translateX(-50%) translateY(-60px) scale(1); opacity: 0; }
+}
+
+/* MOBILE CONTROLS */
+#mobileControls {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  display: none; pointer-events: none;
+}
+#joystickZone {
+  position: fixed; bottom: 20px; left: 20px; width: 140px; height: 140px;
+  pointer-events: auto;
+}
+.joystick-base {
+  width: 140px; height: 140px; border-radius: 50%;
+  background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3);
+  position: relative;
+}
+.joystick-thumb {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: rgba(255,153,0,0.6); border: 2px solid rgba(255,200,100,0.5);
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%); transition: none;
+}
+#hornBtn {
+  position: fixed; bottom: 30px; right: 30px; width: 70px; height: 70px;
+  border-radius: 50%; background: rgba(255,153,0,0.3);
+  border: 2px solid rgba(255,153,0,0.6); color: #fff; font-size: 1.8em;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: auto; z-index: 21; cursor: pointer;
+}
+
+/* SOUND TOGGLE */
+#soundToggle {
+  position: fixed; top: 15px; right: 15px; z-index: 25;
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px; padding: 8px 12px; color: #fff; cursor: pointer;
+  pointer-events: auto; font-size: 1.2em;
+}
+
+/* VICTORY OVERLAY */
+#victoryOverlay {
+  position: fixed; inset: 0; z-index: 50; display: none;
+  background: rgba(0,0,0,0.7); flex-direction: column;
+  align-items: center; justify-content: center; color: #fff;
+}
+#victoryOverlay h1 {
+  font-size: 4em; color: #44ff44; margin-bottom: 0.2em;
+  text-shadow: 0 0 40px rgba(0,255,0,0.5);
+  animation: victoryPulse 1s ease infinite alternate;
+}
+@keyframes victoryPulse {
+  to { transform: scale(1.05); text-shadow: 0 0 60px rgba(0,255,0,0.8); }
+}
+#victoryOverlay .final-price {
+  font-size: 3em; font-family: 'Courier New', monospace;
+  color: #44ff44; margin-bottom: 1em;
+}
+#victoryOverlay .stats { font-size: 1.3em; color: #ccc; margin: 5px 0; }
+#nextCityBtn, #portalBtn {
+  padding: 15px 40px; font-size: 1.3em; font-weight: 700;
+  border: none; border-radius: 10px; cursor: pointer; margin: 8px;
+  transition: all 0.2s;
+}
+#nextCityBtn {
+  background: linear-gradient(135deg, #f90, #ff6600); color: #fff;
+}
+#portalBtn {
+  background: linear-gradient(135deg, #00cc88, #009966); color: #fff;
+}
+#nextCityBtn:hover, #portalBtn:hover { transform: scale(1.05); }
+
+/* GAME OVER */
+#gameOverOverlay {
+  position: fixed; inset: 0; z-index: 50; display: none;
+  background: rgba(0,0,0,0.8); flex-direction: column;
+  align-items: center; justify-content: center; color: #fff;
+}
+#gameOverOverlay h1 { font-size: 3em; color: #ff4444; margin-bottom: 0.5em; }
+#gameOverOverlay .final-price { font-size: 2.5em; font-family: 'Courier New', monospace; color: #ffaa00; }
+#retryBtn {
+  padding: 15px 40px; font-size: 1.3em; font-weight: 700;
+  background: linear-gradient(135deg, #f90, #ff6600); color: #fff;
+  border: none; border-radius: 10px; cursor: pointer; margin-top: 1.5em;
+}
+
+/* MINIMAP */
+#minimap {
+  position: fixed; top: 100px; right: 15px; width: 160px; height: 160px;
+  border-radius: 50%; overflow: hidden; z-index: 10; pointer-events: none;
+  border: 2px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.5);
+}
+#minimapCanvas { width: 100%; height: 100%; }
+
+/* LEADERBOARD TICKER */
+#leaderTicker {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+  background: rgba(0,0,0,0.7); padding: 6px 0; pointer-events: none;
+  overflow: hidden; white-space: nowrap; height: 30px;
+}
+#leaderTicker .ticker-content {
+  display: inline-block; animation: tickerScroll 30s linear infinite;
+  color: #aaa; font-size: 0.85em;
+}
+#leaderTicker .ticker-content span { margin: 0 25px; }
+#leaderTicker .ticker-content .city-name { color: #f90; font-weight: 700; }
+@keyframes tickerScroll {
+  from { transform: translateX(100vw); }
+  to { transform: translateX(-100%); }
+}
+
+/* LOADING */
+#loading {
+  position: fixed; inset: 0; z-index: 200; background: #0a0a1a;
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; color: #fff;
+}
+#loading .spinner {
+  width: 60px; height: 60px; border: 4px solid #333;
+  border-top-color: #f90; border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin-bottom: 1em;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Loading Barrel Run...</div>
+</div>
+
+<div id="startScreen" style="display:none">
+  <h1>⛽ BARREL RUN</h1>
+  <div class="subtitle">Find barrels. Lower gas prices. Save the city.</div>
+  <div class="price-preview">$7.89<span style="font-size:0.4em">/gal</span></div>
+  <div class="target-preview">🎯 Target: $2.00/gal</div>
+  <div class="input-group">
+    <label>YOUR NAME</label>
+    <input type="text" id="nameInput" placeholder="Enter name..." maxlength="12" value="Player">
+  </div>
+  <div class="input-group">
+    <label>TRUCK COLOR</label>
+    <div class="color-picker" id="colorPicker">
+      <div class="color-opt selected" data-color="#ff4444" style="background:#ff4444"></div>
+      <div class="color-opt" data-color="#4488ff" style="background:#4488ff"></div>
+      <div class="color-opt" data-color="#44dd44" style="background:#44dd44"></div>
+      <div class="color-opt" data-color="#ffaa00" style="background:#ffaa00"></div>
+      <div class="color-opt" data-color="#dd44dd" style="background:#dd44dd"></div>
+      <div class="color-opt" data-color="#44dddd" style="background:#44dddd"></div>
+    </div>
+  </div>
+  <button id="startBtn">🚛 START DRIVING</button>
+  <div class="controls-hint">
+    <span>WASD</span> or <span>Arrows</span> to drive &nbsp;|&nbsp;
+    <span>Mouse</span> to look &nbsp;|&nbsp;
+    <span>H</span> to honk &nbsp;|&nbsp;
+    <span>M</span> to mute
+  </div>
+</div>
+
+<div id="hud" style="display:none">
+  <div class="hud-top">
+    <div class="hud-price" id="hudPrice">⛽ $7.89/gal</div>
+    <div class="hud-target">🎯 Target: $2.00/gal</div>
+    <div class="hud-timer" id="hudTimer">🕐 10:00</div>
+  </div>
+</div>
+
+<div id="minimap" style="display:none">
+  <canvas id="minimapCanvas" width="160" height="160"></canvas>
+</div>
+
+<div class="hud-bottom" id="hudBottom" style="display:none">
+  <div class="hud-stats">
+    <div>🛢️ You: <span id="playerBarrels">0</span></div>
+    <div>🏙️ City: <span id="cityBarrels">0</span></div>
+    <div>👥 Players: <span id="playerCount">1</span></div>
+  </div>
+</div>
+
+<div id="eventFeed"></div>
+
+<div class="hud-proximity" id="proximityHud">
+  <div class="proximity-indicator" id="proximityIndicator">
+    🎯 Barrel nearby! <span class="proximity-dist" id="proximityDist">--m</span>
+  </div>
+</div>
+
+<div class="pickup-flash" id="pickupFlash"></div>
+
+<div id="mobileControls">
+  <div id="joystickZone">
+    <div class="joystick-base">
+      <div class="joystick-thumb" id="joystickThumb"></div>
+    </div>
+  </div>
+  <div id="hornBtn">📯</div>
+</div>
+
+<div id="soundToggle">🔊</div>
+
+<div id="victoryOverlay">
+  <h1>🎉 CITY SAVED!</h1>
+  <div class="final-price" id="victoryPrice">$1.89/gal</div>
+  <div class="stats" id="victoryStats"></div>
+  <button id="nextCityBtn">🏙️ Next City →</button>
+  <button id="portalBtn">🌀 Explore Other Worlds</button>
+</div>
+
+<div id="gameOverOverlay">
+  <h1>⏰ TIME'S UP!</h1>
+  <div class="final-price" id="gameOverPrice">$3.42/gal</div>
+  <div class="stats" id="gameOverStats">So close! The city needed you for a bit longer.</div>
+  <button id="retryBtn">🔄 Try Again</button>
+</div>
+
+<div id="leaderTicker" style="display:none">
+  <div class="ticker-content">
+    <span><span class="city-name">🏆 SF</span> $1.89</span>
+    <span><span class="city-name">NYC</span> $3.42</span>
+    <span><span class="city-name">LA</span> $2.87</span>
+    <span><span class="city-name">Houston</span> $2.12</span>
+    <span><span class="city-name">Chicago</span> $4.05</span>
+    <span><span class="city-name">🏆 SF</span> $1.89</span>
+    <span><span class="city-name">NYC</span> $3.42</span>
+    <span><span class="city-name">LA</span> $2.87</span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
