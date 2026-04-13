@@ -166,6 +166,26 @@ canvas { display: block; }
   pointer-events: auto; z-index: 21; cursor: pointer;
 }
 
+
+/* MODE BUTTONS */
+.mode-buttons { display: flex; gap: 12px; margin-top: 1em; flex-wrap: wrap; justify-content: center; }
+.mode-btn {
+  padding: 14px 28px; font-size: 1.1em; font-weight: 700; color: #fff;
+  border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+.mode-btn:hover { transform: scale(1.05); box-shadow: 0 6px 25px rgba(0,0,0,0.4); }
+
+/* ROOM CODE IN GAME */
+#roomCodeHud {
+  position: fixed; top: 15px; left: 15px; z-index: 10; pointer-events: none;
+  background: rgba(0,0,0,0.6); border-radius: 8px; padding: 6px 12px;
+  backdrop-filter: blur(5px); border: 1px solid rgba(0,255,136,0.3);
+}
+#roomCodeHud .code { color: #00ff88; font-weight: 900; letter-spacing: 3px; font-size: 1.1em; }
+#roomCodeHud .label { color: #888; font-size: 0.75em; }
+#roomCodeHud .players { color: #aaa; font-size: 0.8em; }
+
 /* SOUND TOGGLE */
 #soundToggle {
   position: fixed; top: 15px; right: 15px; z-index: 25;
@@ -287,7 +307,35 @@ canvas { display: block; }
       <div class="color-opt" data-color="#44dddd" style="background:#44dddd"></div>
     </div>
   </div>
-  <button id="startBtn">🚛 START DRIVING</button>
+  <div class="mode-buttons" id="modeButtons">
+    <button id="createRoomBtn" class="mode-btn" style="background:linear-gradient(135deg,#00cc88,#009966)">🌐 CREATE ROOM</button>
+    <button id="joinRoomBtn" class="mode-btn" style="background:linear-gradient(135deg,#4488ff,#2266dd)">🔗 JOIN ROOM</button>
+    <button id="soloBtn" class="mode-btn" style="background:linear-gradient(135deg,#f90,#ff6600)">🚛 PLAY SOLO</button>
+  </div>
+  <div id="roomPanel" style="display:none;text-align:center;margin-top:1em">
+    <div id="roomCreating" style="display:none">
+      <div style="color:#aaa;margin-bottom:0.5em">Creating room...</div>
+      <div class="spinner" style="margin:0 auto;width:30px;height:30px;border:3px solid #333;border-top-color:#0c8;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+    </div>
+    <div id="roomCreated" style="display:none">
+      <div style="color:#aaa;margin-bottom:0.3em">Share this room code:</div>
+      <div id="roomCodeDisplay" style="font-size:3em;font-weight:900;letter-spacing:12px;color:#00ff88;text-shadow:0 0 20px rgba(0,255,136,0.5)">----</div>
+      <div style="color:#888;font-size:0.85em;margin:0.5em 0">Waiting for players... <span id="roomPlayerCount">0</span> connected</div>
+      <button id="startMultiBtn" style="padding:12px 35px;font-size:1.2em;font-weight:700;background:linear-gradient(135deg,#0c8,#096);color:#fff;border:none;border-radius:10px;cursor:pointer;margin-top:0.5em">▶ START GAME</button>
+    </div>
+    <div id="roomJoinPanel" style="display:none">
+      <div style="color:#aaa;margin-bottom:0.5em">Enter room code:</div>
+      <input type="text" id="roomCodeInput" maxlength="4" placeholder="ABCD" style="padding:12px 20px;font-size:2.5em;font-weight:900;letter-spacing:10px;border:2px solid #4488ff;border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;text-align:center;outline:none;width:200px;text-transform:uppercase">
+      <br>
+      <button id="connectBtn" style="padding:12px 35px;font-size:1.2em;font-weight:700;background:linear-gradient(135deg,#48f,#26d);color:#fff;border:none;border-radius:10px;cursor:pointer;margin-top:0.8em">🔗 CONNECT</button>
+      <div id="joinStatus" style="color:#ff6644;margin-top:0.5em;font-size:0.9em"></div>
+    </div>
+    <div id="roomJoined" style="display:none">
+      <div style="color:#44ff44;font-size:1.2em">✅ Connected to room <span id="joinedRoomCode" style="font-weight:900;letter-spacing:4px"></span></div>
+      <div style="color:#888;font-size:0.9em;margin-top:0.5em">Waiting for host to start...</div>
+      <div class="spinner" style="margin:1em auto;width:25px;height:25px;border:3px solid #333;border-top-color:#48f;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+    </div>
+  </div>
   <div class="controls-hint">
     <span>WASD</span> or <span>Arrows</span> to drive &nbsp;|&nbsp;
     <span>Mouse</span> to look &nbsp;|&nbsp;
@@ -312,7 +360,7 @@ canvas { display: block; }
   <div class="hud-stats">
     <div>🛢️ You: <span id="playerBarrels">0</span></div>
     <div>🏙️ City: <span id="cityBarrels">0</span></div>
-    <div>👥 Players: <span id="playerCount">1</span> <span style="color:#888;font-size:0.75em">(simulated)</span></div>
+    <div>👥 Players: <span id="playerCount">1</span> <span id="playerModeLabel" style="color:#888;font-size:0.75em">(solo)</span></div>
   </div>
 </div>
 
@@ -335,6 +383,7 @@ canvas { display: block; }
   <div id="hornBtn">📯</div>
 </div>
 
+<div id="roomCodeHud" style="display:none"><div class="label">ROOM</div><div class="code" id="hudRoomCode">----</div><div class="players" id="hudRoomPlayers">1 player</div></div>
 <div id="soundToggle">🔊</div>
 
 <div id="victoryOverlay">
@@ -389,6 +438,7 @@ canvas { display: block; }
   </div>
 </div>
 
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ============================================================
@@ -463,6 +513,400 @@ let proximityBarrel = null;
 let gasSignGroup = null;
 let confettiParticles = [];
 let dustParticles = null;
+
+let gameMode = 'solo'; // 'solo', 'host', 'client'
+let networkPlayers = {}; // id -> { mesh, name, color, x, z, ry }
+let positionSendTimer = 0;
+
+// ---- NETWORK MANAGER (PeerJS WebRTC) ----
+class NetworkManager {
+  constructor() {
+    this.peer = null;
+    this.isHost = false;
+    this.connections = [];
+    this.hostConnection = null;
+    this.roomCode = '';
+    this.playerData = {};
+    this.onGameStart = null;
+  }
+
+  generateCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  createRoom() {
+    return new Promise((resolve, reject) => {
+      this.roomCode = this.generateCode();
+      this.isHost = true;
+      this.peer = new Peer('barrel-' + this.roomCode, { debug: 0 });
+
+      this.peer.on('open', () => {
+        console.log('Room created:', this.roomCode);
+        this.peer.on('connection', conn => this._handleNewClient(conn));
+        resolve(this.roomCode);
+      });
+
+      this.peer.on('error', err => {
+        if (err.type === 'unavailable-id') {
+          // Code taken, retry with new code
+          this.peer.destroy();
+          this.roomCode = this.generateCode();
+          this.peer = new Peer('barrel-' + this.roomCode, { debug: 0 });
+          this.peer.on('open', () => {
+            this.peer.on('connection', conn => this._handleNewClient(conn));
+            resolve(this.roomCode);
+          });
+          this.peer.on('error', e2 => reject(e2.message));
+        } else {
+          reject(err.message);
+        }
+      });
+
+      setTimeout(() => reject('Connection timeout - check your network'), 15000);
+    });
+  }
+
+  joinRoom(code) {
+    return new Promise((resolve, reject) => {
+      this.roomCode = code.toUpperCase();
+      this.isHost = false;
+      this.peer = new Peer(undefined, { debug: 0 });
+
+      this.peer.on('open', myId => {
+        const conn = this.peer.connect('barrel-' + this.roomCode, { reliable: true });
+        let resolved = false;
+
+        conn.on('open', () => {
+          this.hostConnection = conn;
+          conn.send({ type: 'join', name: playerName, color: playerColor });
+
+          conn.on('data', data => this._handleHostMessage(data));
+          conn.on('close', () => {
+            addEventFeed('⚠️ Host disconnected! Switching to solo mode...');
+            gameMode = 'solo';
+            document.getElementById('playerModeLabel').textContent = '(solo)';
+            document.getElementById('roomCodeHud').style.display = 'none';
+            startFakePlayers();
+          });
+
+          if (!resolved) { resolved = true; resolve(); }
+        });
+
+        conn.on('error', err => {
+          if (!resolved) { resolved = true; reject('Could not connect: Room not found or host offline'); }
+        });
+
+        setTimeout(() => {
+          if (!resolved) { resolved = true; reject('Connection timeout - room may not exist'); }
+        }, 10000);
+      });
+
+      this.peer.on('error', err => reject(err.message));
+    });
+  }
+
+  _handleNewClient(conn) {
+    conn.on('open', () => {
+      this.connections.push(conn);
+      console.log('Player connected, total:', this.connections.length);
+      this._updatePlayerCount();
+
+      // Send current game state
+      conn.send({
+        type: 'gameState',
+        price: currentPrice,
+        target: targetPrice,
+        timer: timeRemaining,
+        cityBarrels: cityBarrelCount,
+        gameActive: gameActive,
+        players: this._getPlayerList()
+      });
+
+      conn.on('data', data => this._handleClientMessage(conn, data));
+
+      conn.on('close', () => {
+        this.connections = this.connections.filter(c => c !== conn);
+        const pId = conn.peer;
+        // Remove network player mesh
+        if (networkPlayers[pId]) {
+          scene.remove(networkPlayers[pId].mesh);
+          delete networkPlayers[pId];
+        }
+        const pData = this.playerData[pId];
+        if (pData) {
+          addEventFeed('👋 ' + pData.name + ' left the game');
+          delete this.playerData[pId];
+        }
+        this._updatePlayerCount();
+        this._broadcastPlayerList();
+      });
+    });
+  }
+
+  _handleClientMessage(conn, data) {
+    const pId = conn.peer;
+    switch (data.type) {
+      case 'join':
+        this.playerData[pId] = { name: data.name, color: data.color };
+        addEventFeed('👋 ' + data.name + ' joined the game!');
+        this._broadcastPlayerList();
+        // Create network player mesh
+        createNetworkPlayer(pId, data.name, data.color);
+        break;
+
+      case 'barrelFound':
+        currentPrice = Math.max(0.50, currentPrice - data.reduction);
+        cityBarrelCount++;
+        updateHUD();
+        addEventFeed(data.event);
+        audio.playNote(600, 0.2, 'sine', 0.05);
+        audio.playPriceFlip();
+        // Broadcast to all clients
+        this.broadcast({
+          type: 'priceUpdate',
+          price: currentPrice,
+          cityBarrels: cityBarrelCount,
+          event: data.event
+        });
+        if (currentPrice <= targetPrice) triggerVictory();
+        break;
+
+      case 'position':
+        // Update player position + relay to others
+        updateNetworkPlayer(pId, data);
+        this.broadcast({
+          type: 'playerPos',
+          id: pId,
+          x: data.x, z: data.z, ry: data.ry,
+          name: data.name, color: data.color
+        }, conn);
+        break;
+    }
+  }
+
+  _handleHostMessage(data) {
+    switch (data.type) {
+      case 'gameState':
+        currentPrice = data.price;
+        targetPrice = data.target;
+        timeRemaining = data.timer;
+        cityBarrelCount = data.cityBarrels;
+        if (data.gameActive && !gameActive) {
+          // Host started the game while we were in lobby
+        }
+        updateHUD();
+        // Create meshes for existing players
+        if (data.players) {
+          data.players.forEach(p => {
+            if (p.id !== this.peer.id) {
+              createNetworkPlayer(p.id, p.name, p.color);
+            }
+          });
+        }
+        break;
+
+      case 'priceUpdate':
+        currentPrice = data.price;
+        cityBarrelCount = data.cityBarrels;
+        updateHUD();
+        if (data.event) addEventFeed(data.event);
+        audio.playNote(600, 0.2, 'sine', 0.05);
+        audio.playPriceFlip();
+        if (currentPrice <= targetPrice) triggerVictory();
+        break;
+
+      case 'playerPos':
+        updateNetworkPlayer(data.id, data);
+        break;
+
+      case 'playerJoined':
+        createNetworkPlayer(data.id, data.name, data.color);
+        addEventFeed('👋 ' + data.name + ' joined!');
+        break;
+
+      case 'playerLeft':
+        if (networkPlayers[data.id]) {
+          scene.remove(networkPlayers[data.id].mesh);
+          delete networkPlayers[data.id];
+        }
+        addEventFeed('👋 ' + (data.name || 'A player') + ' left');
+        break;
+
+      case 'playerList':
+        document.getElementById('playerCount').textContent = data.count;
+        document.getElementById('hudRoomPlayers').textContent = data.count + ' player' + (data.count !== 1 ? 's' : '');
+        break;
+
+      case 'timerSync':
+        timeRemaining = data.timer;
+        break;
+
+      case 'startGame':
+        if (this.onGameStart) this.onGameStart();
+        break;
+
+      case 'hostBarrelFound':
+        // Host found a barrel, update our state
+        currentPrice = data.price;
+        cityBarrelCount = data.cityBarrels;
+        updateHUD();
+        if (data.event) addEventFeed(data.event);
+        audio.playNote(600, 0.2, 'sine', 0.05);
+        audio.playPriceFlip();
+        if (currentPrice <= targetPrice) triggerVictory();
+        break;
+    }
+  }
+
+  broadcast(data, excludeConn = null) {
+    this.connections.forEach(conn => {
+      if (conn !== excludeConn && conn.open) {
+        try { conn.send(data); } catch(e) {}
+      }
+    });
+  }
+
+  reportBarrelFind(reduction, eventText) {
+    if (this.isHost) {
+      currentPrice = Math.max(0.50, currentPrice - reduction);
+      cityBarrelCount++;
+      updateHUD();
+      this.broadcast({
+        type: 'priceUpdate',
+        price: currentPrice,
+        cityBarrels: cityBarrelCount,
+        event: eventText
+      });
+      if (currentPrice <= targetPrice) triggerVictory();
+    } else if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send({
+        type: 'barrelFound',
+        reduction: reduction,
+        event: eventText
+      });
+    }
+  }
+
+  sendPosition(x, z, ry) {
+    const data = { type: 'position', x, z, ry, name: playerName, color: playerColor };
+    if (this.isHost) {
+      this.broadcast({ type: 'playerPos', id: 'host', x, z, ry, name: playerName, color: playerColor });
+    } else if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send(data);
+    }
+  }
+
+  syncTimer() {
+    if (this.isHost) {
+      this.broadcast({ type: 'timerSync', timer: timeRemaining });
+    }
+  }
+
+  startGameForAll() {
+    if (this.isHost) {
+      this.broadcast({ type: 'startGame' });
+    }
+  }
+
+  _updatePlayerCount() {
+    const count = this.connections.length + 1;
+    document.getElementById('playerCount').textContent = count;
+    document.getElementById('hudRoomPlayers').textContent = count + ' player' + (count !== 1 ? 's' : '');
+    document.getElementById('roomPlayerCount').textContent = this.connections.length;
+    this.broadcast({ type: 'playerList', count });
+  }
+
+  _getPlayerList() {
+    const list = [{ id: 'host', name: playerName, color: playerColor }];
+    for (const [id, data] of Object.entries(this.playerData)) {
+      list.push({ id, ...data });
+    }
+    return list;
+  }
+
+  _broadcastPlayerList() {
+    const count = this.connections.length + 1;
+    this.broadcast({ type: 'playerList', count });
+  }
+
+  getPlayerCount() {
+    return this.connections.length + 1;
+  }
+}
+
+let network = null;
+
+// ---- NETWORK PLAYER MESHES ----
+function createNetworkPlayer(id, name, color) {
+  if (networkPlayers[id]) return; // Already exists
+
+  const g = new THREE.Group();
+  const col = new THREE.Color(color || '#4488ff');
+
+  // Truck body (simplified)
+  const cab = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 2.5, 3),
+    new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.3 })
+  );
+  cab.position.set(0, 2, 1.5);
+  cab.castShadow = true;
+  g.add(cab);
+
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(3.2, 3, 5),
+    new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(0.8), roughness: 0.5 })
+  );
+  body.position.set(0, 2.2, -1.5);
+  body.castShadow = true;
+  g.add(body);
+
+  // Headlights
+  [-1, 1].forEach(s => {
+    const hl = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 6, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffffaa })
+    );
+    hl.position.set(s * 1.1, 1.8, 3.1);
+    g.add(hl);
+  });
+
+  // Name tag (using sprite)
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.roundRect(0, 0, 256, 64, 10);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 28px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(name || 'Player', 128, 42);
+  const tex = new THREE.CanvasTexture(canvas);
+  const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.position.set(0, 5.5, 0);
+  sprite.scale.set(6, 1.5, 1);
+  g.add(sprite);
+
+  g.position.set(0, 0, 0);
+  scene.add(g);
+  networkPlayers[id] = { mesh: g, name, color, x: 0, z: 0, ry: 0, targetX: 0, targetZ: 0, targetRY: 0 };
+}
+
+function updateNetworkPlayer(id, data) {
+  if (!networkPlayers[id]) {
+    createNetworkPlayer(id, data.name, data.color);
+  }
+  const np = networkPlayers[id];
+  np.targetX = data.x;
+  np.targetZ = data.z;
+  np.targetRY = data.ry;
+}
+
 
 // ---- AUDIO ENGINE ----
 class AudioEngine {
@@ -791,8 +1235,86 @@ function init() {
     });
   });
 
-  // Start button
-  document.getElementById('startBtn').addEventListener('click', startGame);
+  // Mode buttons
+  document.getElementById('soloBtn').addEventListener('click', () => {
+    gameMode = 'solo';
+    document.getElementById('playerModeLabel').textContent = '(solo)';
+    startGame();
+  });
+
+  document.getElementById('createRoomBtn').addEventListener('click', async () => {
+    playerName = document.getElementById('nameInput').value.trim() || 'Player';
+    playerColor = document.querySelector('.color-opt.selected')?.dataset.color || '#ff4444';
+    document.getElementById('modeButtons').style.display = 'none';
+    document.getElementById('roomPanel').style.display = 'block';
+    document.getElementById('roomCreating').style.display = 'block';
+
+    try {
+      network = new NetworkManager();
+      const code = await network.createRoom();
+      document.getElementById('roomCreating').style.display = 'none';
+      document.getElementById('roomCreated').style.display = 'block';
+      document.getElementById('roomCodeDisplay').textContent = code;
+    } catch (err) {
+      document.getElementById('roomCreating').style.display = 'none';
+      document.getElementById('modeButtons').style.display = 'flex';
+      document.getElementById('roomPanel').style.display = 'none';
+      addEventFeed('❌ ' + err);
+      alert('Failed to create room: ' + err);
+    }
+  });
+
+  document.getElementById('startMultiBtn').addEventListener('click', () => {
+    gameMode = 'host';
+    document.getElementById('playerModeLabel').textContent = '(multiplayer)';
+    network.startGameForAll();
+    startGame();
+  });
+
+  document.getElementById('joinRoomBtn').addEventListener('click', () => {
+    playerName = document.getElementById('nameInput').value.trim() || 'Player';
+    playerColor = document.querySelector('.color-opt.selected')?.dataset.color || '#ff4444';
+    document.getElementById('modeButtons').style.display = 'none';
+    document.getElementById('roomPanel').style.display = 'block';
+    document.getElementById('roomJoinPanel').style.display = 'block';
+    document.getElementById('roomCodeInput').focus();
+  });
+
+  document.getElementById('connectBtn').addEventListener('click', async () => {
+    const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+    if (code.length !== 4) {
+      document.getElementById('joinStatus').textContent = 'Enter a 4-character room code';
+      return;
+    }
+    document.getElementById('joinStatus').textContent = 'Connecting...';
+    document.getElementById('connectBtn').disabled = true;
+
+    try {
+      network = new NetworkManager();
+      network.onGameStart = () => {
+        gameMode = 'client';
+        document.getElementById('playerModeLabel').textContent = '(multiplayer)';
+        startGame();
+      };
+      await network.joinRoom(code);
+      document.getElementById('roomJoinPanel').style.display = 'none';
+      document.getElementById('roomJoined').style.display = 'block';
+      document.getElementById('joinedRoomCode').textContent = code;
+      // If game already active on host, start immediately
+      if (gameActive) {
+        gameMode = 'client';
+        document.getElementById('playerModeLabel').textContent = '(multiplayer)';
+        startGame();
+      }
+    } catch (err) {
+      document.getElementById('joinStatus').textContent = '❌ ' + err;
+      document.getElementById('connectBtn').disabled = false;
+    }
+  });
+
+  document.getElementById('roomCodeInput').addEventListener('keyup', e => {
+    if (e.key === 'Enter') document.getElementById('connectBtn').click();
+  });
 
   // Sound toggle
   document.getElementById('soundToggle').addEventListener('click', () => {
@@ -1629,11 +2151,25 @@ function collectBarrel(barrel, index) {
 
   const td = barrel.userData.td;
   const tier = barrel.userData.tier;
+  const emoji = tier === 'gold' ? '🟡' : tier === 'silver' ? '⚪' : '🟤';
 
   // Update price
-  currentPrice = Math.max(0.50, currentPrice - td.priceReduction);
-  playerBarrelCount++;
-  cityBarrelCount++;
+  const eventText = emoji + ' ' + playerName + ' found a ' + td.label + ' Barrel! -$' + td.priceReduction.toFixed(2);
+
+  if (gameMode !== 'solo' && network) {
+    // Multiplayer: report to network (host will broadcast)
+    network.reportBarrelFind(td.priceReduction, eventText);
+    playerBarrelCount++;
+    if (gameMode === 'host') {
+      // Host already updated in reportBarrelFind
+    } else {
+      // Client: price will be updated by host message
+    }
+  } else {
+    currentPrice = Math.max(0.50, currentPrice - td.priceReduction);
+    playerBarrelCount++;
+    cityBarrelCount++;
+  }
   updateHUD();
 
   // SFX
@@ -1669,15 +2205,16 @@ function collectBarrel(barrel, index) {
   document.body.appendChild(popup);
   setTimeout(() => popup.remove(), 1500);
 
-  // Event feed
-  const emoji = tier === 'gold' ? '🟡' : tier === 'silver' ? '⚪' : '🟤';
-  addEventFeed(`${emoji} You found a ${td.label} Barrel! -$${td.priceReduction.toFixed(2)}`);
+  // Event feed (already sent via network in multiplayer)
+  if (gameMode === 'solo') {
+    addEventFeed(eventText);
+  }
 
   // Respawn
   setTimeout(() => respawnBarrel(index), BARREL_RESPAWN_TIME);
 
-  // Check victory
-  if (currentPrice <= targetPrice) {
+  // Check victory (solo mode only - multiplayer checks in network handler)
+  if (gameMode === 'solo' && currentPrice <= targetPrice) {
     triggerVictory();
   }
 }
@@ -1761,6 +2298,12 @@ function resetGame() {
   fakePlayers.forEach(fp => scene.remove(fp));
   fakePlayers = [];
 
+  // Remove network players
+  for (const [id, np] of Object.entries(networkPlayers)) {
+    if (np.mesh) scene.remove(np.mesh);
+  }
+  networkPlayers = {};
+
   if (player) {
     player.position.set(0, 0, 0);
     player.rotation.y = 0;
@@ -1797,8 +2340,16 @@ function startGame() {
   // Spawn barrels
   spawnBarrels();
 
-  // Fake multiplayer
-  startFakePlayers();
+  // Multiplayer or simulated co-op
+  if (gameMode === 'solo') {
+    startFakePlayers();
+    addEventFeed('🤖 Co-op players are simulated — real multiplayer coming soon!');
+  } else {
+    // Show room code HUD
+    document.getElementById('roomCodeHud').style.display = 'block';
+    document.getElementById('hudRoomCode').textContent = network.roomCode;
+    addEventFeed('🌐 Multiplayer room ' + network.roomCode + ' — real players!');
+  }
 
   // Start timer
   gameActive = true;
@@ -1807,9 +2358,6 @@ function startGame() {
   // Timer interval
   if (window._timerInterval) clearInterval(window._timerInterval);
   window._timerInterval = setInterval(updateTimer, 1000);
-
-  // Notify about simulated co-op
-  addEventFeed('🤖 Co-op players are simulated — real multiplayer coming soon!');
 
   // Foghorn interval
   if (window._foghornInterval) clearInterval(window._foghornInterval);
@@ -1997,6 +2545,32 @@ function animate() {
 
     // Exhaust particles
     updateExhaust(player, dt);
+
+    // ---- NETWORK SYNC ----
+    if (gameMode !== 'solo' && network) {
+      positionSendTimer += dt;
+      if (positionSendTimer > 0.1) { // 10Hz
+        positionSendTimer = 0;
+        network.sendPosition(player.position.x, player.position.z, player.rotation.y);
+      }
+      // Sync timer from host every 5 seconds
+      if (gameMode === 'host' && Math.floor(time * 2) % 10 === 0) {
+        network.syncTimer();
+      }
+    }
+
+    // ---- INTERPOLATE NETWORK PLAYERS ----
+    for (const [id, np] of Object.entries(networkPlayers)) {
+      if (np.mesh) {
+        np.mesh.position.x += (np.targetX - np.mesh.position.x) * 8 * dt;
+        np.mesh.position.z += (np.targetZ - np.mesh.position.z) * 8 * dt;
+        // Smooth rotation
+        let dr = np.targetRY - np.mesh.rotation.y;
+        while (dr > Math.PI) dr -= Math.PI * 2;
+        while (dr < -Math.PI) dr += Math.PI * 2;
+        np.mesh.rotation.y += dr * 8 * dt;
+      }
+    }
 
     // ---- CAMERA ----
     const camDist = 18 + player.userData.speed * 0.15;
