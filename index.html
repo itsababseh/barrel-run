@@ -536,6 +536,7 @@ class NetworkManager {
     this.roomCode = '';
     this.playerData = {};
     this.onGameStart = null;
+    this._destroyed = false;
   }
 
   generateCode() {
@@ -545,35 +546,73 @@ class NetworkManager {
     return code;
   }
 
+  _createPeer(id) {
+    const opts = {
+      debug: 2,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun.relay.metered.ca:80' },
+          { urls: 'turn:a.relay.metered.ca:80', username: 'e8dd65b92c162a2be0bfb1e2', credential: '7+s3PiShL/MhkfCh' },
+          { urls: 'turn:a.relay.metered.ca:443', username: 'e8dd65b92c162a2be0bfb1e2', credential: '7+s3PiShL/MhkfCh' },
+          { urls: 'turn:a.relay.metered.ca:443?transport=tcp', username: 'e8dd65b92c162a2be0bfb1e2', credential: '7+s3PiShL/MhkfCh' }
+        ]
+      }
+    };
+    if (id) opts.debug = 2;
+    return id ? new Peer(id, opts) : new Peer(opts);
+  }
+
   createRoom() {
     return new Promise((resolve, reject) => {
-      this.roomCode = this.generateCode();
-      this.isHost = true;
-      this.peer = new Peer('barrel-' + this.roomCode, { debug: 0 });
+      let rejected = false;
+      let retries = 0;
+      const maxRetries = 3;
 
-      this.peer.on('open', () => {
-        console.log('Room created:', this.roomCode);
-        this.peer.on('connection', conn => this._handleNewClient(conn));
-        resolve(this.roomCode);
-      });
+      const tryCreate = () => {
+        if (this._destroyed) return;
+        this.roomCode = this.generateCode();
+        this.isHost = true;
+        const peerId = 'barrel-' + this.roomCode;
+        console.log('[NET] Creating room, peer ID:', peerId, 'attempt:', retries + 1);
 
-      this.peer.on('error', err => {
-        if (err.type === 'unavailable-id') {
-          // Code taken, retry with new code
-          this.peer.destroy();
-          this.roomCode = this.generateCode();
-          this.peer = new Peer('barrel-' + this.roomCode, { debug: 0 });
-          this.peer.on('open', () => {
-            this.peer.on('connection', conn => this._handleNewClient(conn));
-            resolve(this.roomCode);
-          });
-          this.peer.on('error', e2 => reject(e2.message));
-        } else {
-          reject(err.message);
-        }
-      });
+        if (this.peer) { try { this.peer.destroy(); } catch(e) {} }
+        this.peer = this._createPeer(peerId);
 
-      setTimeout(() => reject('Connection timeout - check your network'), 15000);
+        this.peer.on('open', (id) => {
+          if (rejected) return;
+          console.log('[NET] Room created successfully! Code:', this.roomCode, 'ID:', id);
+          this.peer.on('connection', conn => this._handleNewClient(conn));
+          resolve(this.roomCode);
+        });
+
+        this.peer.on('error', err => {
+          console.warn('[NET] Create error:', err.type, err.message);
+          if (rejected) return;
+          if (err.type === 'unavailable-id' && retries < maxRetries) {
+            retries++;
+            try { this.peer.destroy(); } catch(e) {}
+            setTimeout(tryCreate, 500);
+          } else if (!rejected) {
+            rejected = true;
+            reject('Room creation failed: ' + err.message + ' (type: ' + err.type + ')');
+          }
+        });
+
+        this.peer.on('disconnected', () => {
+          console.warn('[NET] Peer disconnected from signaling, reconnecting...');
+          if (!this._destroyed && this.peer && !this.peer.destroyed) {
+            this.peer.reconnect();
+          }
+        });
+      };
+
+      tryCreate();
+      setTimeout(() => {
+        if (!rejected) { rejected = true; reject('Connection timeout after 20s - check your internet connection'); }
+      }, 20000);
     });
   }
 
@@ -581,38 +620,98 @@ class NetworkManager {
     return new Promise((resolve, reject) => {
       this.roomCode = code.toUpperCase();
       this.isHost = false;
-      this.peer = new Peer(undefined, { debug: 0 });
+      let resolved = false;
+      let retries = 0;
+      const maxRetries = 2;
+      const hostPeerId = 'barrel-' + this.roomCode;
 
-      this.peer.on('open', myId => {
-        const conn = this.peer.connect('barrel-' + this.roomCode, { reliable: true });
-        let resolved = false;
+      console.log('[NET] Joining room:', this.roomCode, 'connecting to:', hostPeerId);
 
-        conn.on('open', () => {
-          this.hostConnection = conn;
-          conn.send({ type: 'join', name: playerName, color: playerColor });
+      const tryConnect = () => {
+        if (this._destroyed) return;
+        if (this.peer) { try { this.peer.destroy(); } catch(e) {} }
+        this.peer = this._createPeer();
 
-          conn.on('data', data => this._handleHostMessage(data));
-          conn.on('close', () => {
-            addEventFeed('⚠️ Host disconnected! Switching to solo mode...');
-            gameMode = 'solo';
-            document.getElementById('playerModeLabel').textContent = '(solo)';
-            document.getElementById('roomCodeHud').style.display = 'none';
-            startFakePlayers();
+        this.peer.on('open', myId => {
+          console.log('[NET] My peer ID:', myId, '— now connecting to host:', hostPeerId);
+          const conn = this.peer.connect(hostPeerId, {
+            reliable: true,
+            serialization: 'json'
           });
 
-          if (!resolved) { resolved = true; resolve(); }
+          if (!conn) {
+            console.error('[NET] peer.connect() returned null!');
+            if (!resolved && retries < maxRetries) {
+              retries++;
+              console.log('[NET] Retrying connect, attempt:', retries + 1);
+              setTimeout(tryConnect, 1000);
+              return;
+            }
+            if (!resolved) { resolved = true; reject('Failed to create connection to host'); }
+            return;
+          }
+
+          conn.on('open', () => {
+            console.log('[NET] Connection to host OPEN! Sending join...');
+            this.hostConnection = conn;
+            conn.send({ type: 'join', name: playerName, color: playerColor });
+
+            conn.on('data', data => this._handleHostMessage(data));
+            conn.on('close', () => {
+              console.warn('[NET] Host connection closed');
+              addEventFeed('⚠️ Host disconnected! Switching to solo mode...');
+              gameMode = 'solo';
+              document.getElementById('playerModeLabel').textContent = '(solo)';
+              document.getElementById('roomCodeHud').style.display = 'none';
+              startFakePlayers();
+            });
+
+            if (!resolved) { resolved = true; resolve(); }
+          });
+
+          conn.on('error', err => {
+            console.error('[NET] Connection error:', err);
+            if (!resolved && retries < maxRetries) {
+              retries++;
+              console.log('[NET] Retrying after conn error, attempt:', retries + 1);
+              setTimeout(tryConnect, 1000);
+            } else if (!resolved) {
+              resolved = true;
+              reject('Could not connect: Room "' + code + '" not found or host is offline');
+            }
+          });
         });
 
-        conn.on('error', err => {
-          if (!resolved) { resolved = true; reject('Could not connect: Room not found or host offline'); }
+        this.peer.on('error', err => {
+          console.error('[NET] Peer error:', err.type, err.message);
+          if (err.type === 'peer-unavailable') {
+            if (!resolved && retries < maxRetries) {
+              retries++;
+              console.log('[NET] Host not found, retrying... attempt:', retries + 1);
+              try { this.peer.destroy(); } catch(e) {}
+              setTimeout(tryConnect, 1500);
+            } else if (!resolved) {
+              resolved = true;
+              reject('Room "' + code + '" not found — check the code and make sure host is still in the room');
+            }
+          } else if (!resolved) {
+            resolved = true;
+            reject('Connection error: ' + err.message);
+          }
         });
 
-        setTimeout(() => {
-          if (!resolved) { resolved = true; reject('Connection timeout - room may not exist'); }
-        }, 10000);
-      });
+        this.peer.on('disconnected', () => {
+          console.warn('[NET] Peer disconnected from signaling');
+          if (!this._destroyed && this.peer && !this.peer.destroyed) {
+            this.peer.reconnect();
+          }
+        });
+      };
 
-      this.peer.on('error', err => reject(err.message));
+      tryConnect();
+      setTimeout(() => {
+        if (!resolved) { resolved = true; reject('Connection timeout after 20s — room may not exist or host may be behind a firewall'); }
+      }, 20000);
     });
   }
 
@@ -1676,10 +1775,17 @@ function createPlayer() {
     group.userData.exhaustParticles.push({ x: 0, y: 1, z: -4.2, life: 0, vx: 0, vy: 0, vz: 0 });
   }
 
-  group.position.set(0, 0, 0);
+  // Start at terrain height so player doesn't clip under hills
+  const startY = Math.sin(0 * 0.015) * Math.cos(0 * 0.012) * 8 +
+                 Math.sin(0 * 0.008 + 1) * Math.sin(0 * 0.01) * 12 + 0.5;
+  group.position.set(0, startY, 0);
   group.userData.velocity = 0;
   group.userData.angularVel = 0;
   group.userData.speed = 0;
+  group.userData.smoothAccel = 0;
+  group.userData.smoothSteer = 0;
+  group.userData.currentY = startY;
+  group.userData.currentPitch = 0;
   scene.add(group);
   return group;
 }
@@ -2500,48 +2606,111 @@ function animate() {
     cameraYaw += mouseDX;
     mouseDX = 0;
 
-    // Speed
-    const maxSpeed = 40;
-    const acceleration = 35;
-    const friction = 0.92;
+    // ---- ARCADE DRIVING PHYSICS (NFS-style) ----
+    const maxSpeed = 55;
+    const acceleration = 50;
+    const brakeForce = 60;
+    const friction = 0.985; // Much less drag = smoother coasting
+    const turnSpeed = 2.8;
 
-    player.userData.velocity += accel * acceleration * dt;
-    player.userData.velocity *= friction;
-    player.userData.velocity = Math.max(-maxSpeed * 0.4, Math.min(maxSpeed, player.userData.velocity));
+    // Smooth input with lerp (no jerky accel/steer)
+    if (!player.userData.smoothAccel) player.userData.smoothAccel = 0;
+    if (!player.userData.smoothSteer) player.userData.smoothSteer = 0;
+    player.userData.smoothAccel += (accel - player.userData.smoothAccel) * Math.min(1, 8 * dt);
+    player.userData.smoothSteer += (steer - player.userData.smoothSteer) * Math.min(1, 10 * dt);
+
+    const sAccel = player.userData.smoothAccel;
+    const sSteer = player.userData.smoothSteer;
+    const vel = player.userData.velocity;
+
+    // Acceleration & braking
+    if (sAccel > 0.1) {
+      // Accelerating forward
+      player.userData.velocity += sAccel * acceleration * dt;
+    } else if (sAccel < -0.1) {
+      if (vel > 1) {
+        // Braking while moving forward
+        player.userData.velocity += sAccel * brakeForce * dt;
+      } else {
+        // Reverse
+        player.userData.velocity += sAccel * acceleration * 0.6 * dt;
+      }
+    }
+
+    // Friction (gentle coast)
+    player.userData.velocity *= Math.pow(friction, dt * 60);
+
+    // Clamp speed
+    player.userData.velocity = Math.max(-maxSpeed * 0.35, Math.min(maxSpeed, player.userData.velocity));
     player.userData.speed = Math.abs(player.userData.velocity);
 
-    // Steering (only when moving)
-    const steerAmount = steer * 2.5 * dt * Math.min(1, player.userData.speed / 10);
+    // Steering — works at all speeds, tighter at low speed, drifty at high speed
+    const speedFactor = Math.min(1, player.userData.speed / 5); // Can steer even at low speed
+    const highSpeedGrip = 1 - Math.min(0.4, player.userData.speed / maxSpeed * 0.4); // Slight drift at high speed
+    const steerAmount = sSteer * turnSpeed * dt * speedFactor * highSpeedGrip;
     player.rotation.y += steerAmount;
+
+    // Drift visual: slight lateral slide at high speed + steering
+    const driftFactor = Math.abs(sSteer) * Math.min(1, player.userData.speed / 30) * 0.3;
 
     // Movement
     const moveX = Math.sin(player.rotation.y) * player.userData.velocity * dt;
     const moveZ = Math.cos(player.rotation.y) * player.userData.velocity * dt;
+    // Add lateral drift component
+    const driftX = Math.cos(player.rotation.y) * sSteer * driftFactor * player.userData.velocity * dt;
+    const driftZ = -Math.sin(player.rotation.y) * sSteer * driftFactor * player.userData.velocity * dt;
 
-    const newX = player.position.x + moveX;
-    const newZ = player.position.z + moveZ;
+    const newX = player.position.x + moveX + driftX;
+    const newZ = player.position.z + moveZ + driftZ;
 
-    // Building collision
+    // Building collision — soft push-out instead of jarring bounce
     let blocked = false;
+    let pushX = 0, pushZ = 0;
     for (const b of buildings) {
       const halfW = b.w / 2 + 2;
       const halfD = b.d / 2 + 2;
       if (Math.abs(newX - b.x) < halfW && Math.abs(newZ - b.z) < halfD) {
         blocked = true;
-        player.userData.velocity *= -0.3; // Bounce
+        // Soft slide along building wall
+        const overlapX = halfW - Math.abs(newX - b.x);
+        const overlapZ = halfD - Math.abs(newZ - b.z);
+        if (overlapX < overlapZ) {
+          pushX = overlapX * Math.sign(newX - b.x) * 1.2;
+        } else {
+          pushZ = overlapZ * Math.sign(newZ - b.z) * 1.2;
+        }
+        // Gentle speed reduction on collision (not a hard bounce)
+        player.userData.velocity *= 0.7;
         break;
       }
     }
 
-    if (!blocked) {
-      player.position.x = newX;
-      player.position.z = newZ;
-    }
+    player.position.x = newX + pushX;
+    player.position.z = newZ + pushZ;
 
     // Clamp to city bounds
     const bound = CITY_SIZE * 0.9;
     player.position.x = Math.max(-bound, Math.min(bound, player.position.x));
     player.position.z = Math.max(-bound, Math.min(bound, player.position.z));
+
+    // ---- TERRAIN HEIGHT TRACKING (no more clipping under hills) ----
+    const tx = player.position.x;
+    const tz = player.position.z;
+    const terrainY = Math.sin(tx * 0.015) * Math.cos(tz * 0.012) * 8 +
+                     Math.sin(tx * 0.008 + 1) * Math.sin(tz * 0.01) * 12;
+    // Smooth Y transition so car doesn't teleport on hills
+    if (!player.userData.currentY) player.userData.currentY = terrainY;
+    player.userData.currentY += (terrainY - player.userData.currentY) * Math.min(1, 10 * dt);
+    player.position.y = player.userData.currentY + 0.5; // Sit slightly above ground
+
+    // Tilt car to match hill slope (subtle, looks great)
+    const slopeAheadX = Math.sin((tx + Math.sin(player.rotation.y) * 3) * 0.015) * Math.cos((tz + Math.cos(player.rotation.y) * 3) * 0.012) * 8 +
+                        Math.sin((tx + Math.sin(player.rotation.y) * 3) * 0.008 + 1) * Math.sin((tz + Math.cos(player.rotation.y) * 3) * 0.01) * 12;
+    const slopePitch = Math.atan2(slopeAheadX - terrainY, 3) * 0.5;
+    if (!player.userData.currentPitch) player.userData.currentPitch = 0;
+    player.userData.currentPitch += (slopePitch - player.userData.currentPitch) * Math.min(1, 6 * dt);
+    // Apply pitch via children rotation since player.rotation.x would fight steering
+    player.children.forEach(c => { if (c.type === 'Group' || c.type === 'Mesh') c.rotation.x = player.userData.currentPitch; });
 
     // Wheel rotation
     player.userData.wheels.forEach(w => {
@@ -2572,6 +2741,11 @@ function animate() {
       if (np.mesh) {
         np.mesh.position.x += (np.targetX - np.mesh.position.x) * 8 * dt;
         np.mesh.position.z += (np.targetZ - np.mesh.position.z) * 8 * dt;
+        // Track terrain height for network players too
+        const npx = np.mesh.position.x, npz = np.mesh.position.z;
+        const npTerrainY = Math.sin(npx * 0.015) * Math.cos(npz * 0.012) * 8 +
+                           Math.sin(npx * 0.008 + 1) * Math.sin(npz * 0.01) * 12;
+        np.mesh.position.y += (npTerrainY + 0.5 - np.mesh.position.y) * Math.min(1, 10 * dt);
         // Smooth rotation
         let dr = np.targetRY - np.mesh.rotation.y;
         while (dr > Math.PI) dr -= Math.PI * 2;
@@ -2580,19 +2754,28 @@ function animate() {
       }
     }
 
-    // ---- CAMERA ----
-    const camDist = 18 + player.userData.speed * 0.15;
-    const camHeight = 8 + player.userData.speed * 0.08;
+    // ---- SMOOTH CHASE CAMERA (NFS-style) ----
+    const camDist = 16 + player.userData.speed * 0.12;
+    const camHeight = 6 + player.userData.speed * 0.06;
     const camAngle = player.rotation.y + Math.PI + cameraYaw;
     const idealX = player.position.x + Math.sin(camAngle) * camDist;
     const idealZ = player.position.z + Math.cos(camAngle) * camDist;
-    const idealY = player.position.y + camHeight;
+    const camTerrainY = Math.sin(idealX * 0.015) * Math.cos(idealZ * 0.012) * 8 +
+                        Math.sin(idealX * 0.008 + 1) * Math.sin(idealZ * 0.01) * 12;
+    const idealY = Math.max(player.position.y + camHeight, camTerrainY + camHeight);
 
-    camera.position.lerp(new THREE.Vector3(idealX, idealY, idealZ), 5 * dt);
+    // Very smooth camera follow — high-speed feels cinematic
+    const camSmooth = Math.min(1, 3.5 * dt);
+    camera.position.x += (idealX - camera.position.x) * camSmooth;
+    camera.position.y += (idealY - camera.position.y) * camSmooth;
+    camera.position.z += (idealZ - camera.position.z) * camSmooth;
+
+    // Look slightly ahead of the car for better sense of speed
+    const lookAhead = Math.min(8, player.userData.speed * 0.15);
     camera.lookAt(
-      player.position.x,
-      player.position.y + 3,
-      player.position.z
+      player.position.x + Math.sin(player.rotation.y) * lookAhead,
+      player.position.y + 2.5,
+      player.position.z + Math.cos(player.rotation.y) * lookAhead
     );
 
     // ---- BARREL CHECK ----
